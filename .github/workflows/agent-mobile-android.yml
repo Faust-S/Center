@@ -1,4 +1,4 @@
-name: IWXA packaged original mobile Task qualification
+name: IWXA Android native background Work qualification
 on:
   push:
     branches: ['ci/once/agent-mobile-android/*']
@@ -7,16 +7,16 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: iwxa-mobile-task-dispatch-host
+  group: iwxa-original-python-android-qualification
   cancel-in-progress: false
 jobs:
   qualify:
     if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 110
     env:
-      PRIVATE_PIN: '3eeccc229af27bb3db331d31ffe17cd47b849a33'
-      PRIVATE_TREE: '6fe7ac2696480bff7d1bd0b2d11e91a37f72f0f8'
+      PRIVATE_PIN: '50339ce0f0f88abfef79ab3126351b2f592afd1a'
+      PRIVATE_TREE: '8f3df1ff8247b6610d4f3c7995620f4547c59f15'
       T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
       T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:
@@ -27,10 +27,38 @@ jobs:
           persist-credentials: false
       - name: Admit exact one-shot private source candidate
         run: python3 .ci/agent-mobile-android/admit-once.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Qualify original Task dispatch on host
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/download-artifact@v4
+        with:
+          name: rpds-py-2026.5.1-android-arm64_v8a
+          github-token: ${{ github.token }}
+          run-id: 46125511834
+          path: ${{ runner.temp }}/iwxa-python-wheels/arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: rpds-py-2026.5.1-android-x86_64
+          github-token: ${{ github.token }}
+          run-id: 46125511834
+          path: ${{ runner.temp }}/iwxa-python-wheels/x86_64
+      - name: Verify public native wheels and obtain exact pure Python wheels
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/iwxa-python-wheels"
+          printf '%s\n' 'd54f05ee20ca1af882d8324c57ad3175b94df13ca9108c028b0ee3706b70cbb0  arm64/rpds_py-2026.5.1-cp313-cp313-android_24_arm64_v8a.whl' '0a4a4b2d306773a2343acb0c3954b22291f7f88fb25ab08385c9ac5b6b6760ac  x86_64/rpds_py-2026.5.1-cp313-cp313-android_24_x86_64.whl' | sha256sum -c -
+          python -m pip download --no-deps --only-binary=:all: --dest pure 'attrs==26.1.0' 'jsonschema==4.26.0' 'jsonschema-specifications==2025.9.1' 'pypdf==6.21.4' 'referencing==0.37.0'
+          command -v kotlinc
+          command -v cmake
+          echo PUBLIC_WHEELHOUSE=PASS
+      - name: Qualify installed original background Task with memory regression and fixed public receipts
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-        run: python3 .ci/agent-mobile-android/diagnose-source.py
+        run: python3 .ci/agent-mobile-android/qualify-original-python.py

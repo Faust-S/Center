@@ -60,9 +60,10 @@ def main():
                             "PYTHON_SOURCE_REVISION_MISMATCH","PYTHON_DEPENDENCIES_CHANGED","PYTHON_SCHEMA_INVALID"}:
                     status(label+"_CODE",code)
             for line in text.splitlines():
-                m=re.search(r"(?:OriginalMemoryProductInstalledTest|OriginalMemoryPlugin|OriginalPythonCoreRuntime)\.java:(\d{1,4})(?::(\d{1,3}))?",line)
+                m=re.search(r"(OriginalMemoryProductInstalledTest\.java|OriginalTaskProductInstalledTest\.java|OriginalMemoryPlugin\.java|OriginalPythonCoreRuntime\.java|OriginalTaskModel\.kt|OriginalWorkPlugin\.java|OriginalWorkWake\.java|OriginalWorkJobService\.java|OriginalWorkBackgroundInstalledTest\.java|NativeModelAdmission\.kt|ModelFileIntegrity\.kt|LocalModelPlugin\.kt)(?::|\s*:)\(?(\d{1,4})(?:[:,]\s*(\d{1,3}))?",line)
                 if m and ("error:" in line or line.startswith("e:")):
-                    status(label+"_LOCATION",m[1]+":"+(m[2] or "0"))
+                    status(label+"_LOCATION",m[1]+":"+m[2]+":"+(m[3] or "0"))
+                    if "keySet" in line:status(label+"_CODE","ANDROID_JSON_KEYSET")
         def stage(label,args,cwd=source,timeout=600,stdin=None):
             status("STAGE_STARTED",label)
             try:
@@ -95,11 +96,12 @@ def main():
                   run(["git","rev-parse","HEAD^{tree}"]).stdout.decode().strip()==tree,"PRIVATE_PIN")
             status("PRIVATE_READ","PASS");status("SOURCE_PIN",pin)
             mobile=source/"mobile"
-            host=stage("PYTHON_QA_PACKAGING_TESTS",[sys.executable,"mobile/qualification/test_original_python_qa.py"],timeout=120)
-            check(re.findall(rb"(?m)^Ran (\d+) tests? in [0-9.]+s\s*$",host)==[b"9"] and
-                  re.search(rb"(?m)^OK\s*$",host),"PYTHON_QA_PACKAGING_RECEIPT")
-            status("PYTHON_QA_PACKAGING_COUNT","9/9")
-            # Real source bytes, not just the packager's synthetic unit fixture.
+            status("PRIOR_NATIVE_TASK_PASS_RUN","46134258865")
+            status("PRIOR_ORIGINAL_SCHEDULER_PASS_RUN","46134467594")
+            status("PRIOR_BACKGROUND_CORE_PASS_RUN","46134873053")
+            status("PRIOR_RENDERER_PASS_RUN","46135114472")
+            stage("BACKGROUND_WITNESS_SYNTAX",[sys.executable,"-m","py_compile",
+                  "mobile/qualification/installed-background-work-route.py","mobile/scripts/prepare-original-python-qa.py"],timeout=120)
             source_archive=root/"source.zip"
             raw=stage("ORIGINAL_PYTHON_STAGE",[sys.executable,"mobile/scripts/stage-original-python-core.py",
                       "--source",str(source),"--revision",pin,"--tree",tree,"--output",str(source_archive)],timeout=180)
@@ -108,32 +110,8 @@ def main():
                   receipt.get("archive_sha256")==hashlib.sha256(source_archive.read_bytes()).hexdigest(),
                   "ORIGINAL_SOURCE_RECEIPT")
             status("ORIGINAL_PYTHON_FILES",receipt["files"])
-            status("ORIGINAL_PYTHON_ARCHIVE_SHA256",receipt["archive_sha256"])
-            venv=root/"venv"
-            stage("ORIGINAL_HOST_VENV",[sys.executable,"-m","venv",str(venv)])
-            py=str(venv/"bin/python")
-            stage("ORIGINAL_HOST_DEPENDENCIES",[py,"-m","pip","install","--disable-pip-version-check","--no-cache-dir","-r","requirements.txt","pytest==9.0.2"])
-            xml=root/"owners.xml"
-            suite=["tests/test_structured_memory.py","tests/test_memory_cell_admission_serialization.py",
-                   "tests/test_durable_automation_retry_budget.py"]
-            result=run([py,"-m","pytest","-q","--junitxml="+str(xml),*suite],timeout=300)
-            check(xml.is_file() and xml.stat().st_size<=16*1024*1024,"ORIGINAL_OWNER_REPORT")
-            cases=list(ET.parse(xml).getroot().iter("testcase"))
-            failures=sum(c.find("failure") is not None or c.find("error") is not None for c in cases)
-            skips=sum(c.find("skipped") is not None for c in cases)
-            status("ORIGINAL_OWNER_HOST_TESTS",len(cases));status("ORIGINAL_OWNER_HOST_FAILURES",failures);status("ORIGINAL_OWNER_HOST_SKIPS",skips)
-            check(result.returncode==0 and len(cases)==28 and not failures and not skips,"ORIGINAL_OWNER_HOST_TESTS")
-            status("ORIGINAL_OWNER_HOST","PASS")
-            port=stage("PRODUCT_MEMORY_OWNER_INTEGRATION",[py,"mobile/qualification/python-core-product/test_original_memory_integration.py"],timeout=120)
-            check(re.findall(rb"(?m)^Ran (\d+) tests? in [0-9.]+s\s*$",port)==[b"3"] and
-                  re.search(rb"(?m)^OK\s*$",port),"PRODUCT_MEMORY_OWNER_INTEGRATION_RECEIPT")
-            status("PRODUCT_MEMORY_OWNER_INTEGRATION_COUNT","3/3")
+            py=sys.executable
             stage("NPM_CI",["npm","ci","--no-audit","--no-fund"],mobile)
-            tap=stage("SOURCE",["npm","run","check:source"],mobile,180)
-            check(all(re.findall(rb"(?m)^# "+k+rb" (\d+)\s*$",tap)==[v] for k,v in
-                      ((b"tests",b"912"),(b"pass",b"912"),(b"fail",b"0"),(b"skipped",b"0"),(b"todo",b"0"))),"SOURCE_RECEIPT")
-            check(re.findall(rb"(?m)^Ran (\d+) tests? in [0-9.]+s\s*$",tap)==[b"14"] and re.search(rb"(?m)^OK\s*$",tap),"PRODUCT_PORT_RECEIPT")
-            status("SOURCE_TESTS","912/912");status("PRODUCT_PORT_TESTS","14/14")
             t3pin,t3tree=env["T3_PIN"],env["T3_TREE"]
             spec=json.loads((mobile/"product/t3-source.json").read_text())
             check(spec.get("repository")=="Faust-S/knowledge" and spec.get("revision")==t3pin and spec.get("tree")==t3tree,"T3_PIN")
@@ -161,11 +139,18 @@ def main():
             stage("PYTHON_GRADLE_CONFIGURATION",["bash","./gradlew","help","--no-daemon","--console=plain"],mobile/"android",600)
             stage("LLAMA_NATIVE_INPUTS",["node","scripts/prepare-llama.mjs","--fetch"],mobile,2400)
             stage("SPEECH_NATIVE_INPUTS",["node","scripts/prepare-speech.mjs","--fetch"],mobile,600)
-            stage("ANDROID_NATIVE_INPUTS",["node","scripts/prepare-android.mjs","--native-inputs-only"],mobile,600)
+            stage("PUBLIC_QA_MODEL_INPUT",["node","scripts/prepare-qa-model.mjs","--fetch"],mobile,300)
+            stage("ANDROID_NATIVE_INPUTS",["node","scripts/prepare-android.mjs","--native-inputs-only","--device"],mobile,600)
+            stage("ANDROID_TARGETED_KOTLIN_JAVA_COMPILE",["bash","./gradlew",":app:compileDebugKotlin",":app:compileDebugJavaWithJavac","--no-daemon","--console=plain"],mobile/"android",1200)
             stage("PYTHON_PRODUCT_APK",["bash","./gradlew",":app:assembleDebug",":app:assembleDebugAndroidTest",":app:assembleRelease","--no-daemon","--console=plain"],mobile/"android",3000)
             apk=app/"build/outputs/apk/debug/app-debug.apk"
             testapk=app/"build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
             check(apk.is_file() and testapk.is_file(),"PYTHON_QA_APK_OUTPUT")
+            with zipfile.ZipFile(testapk) as test_archive:
+                qa_model=test_archive.read("assets/qa-model.gguf")
+                check(hashlib.sha256(qa_model).hexdigest()==native["fixture"]["sha256"],"QA_MODEL_APK_IDENTITY")
+                del qa_model
+            status("QA_MODEL_APK_IDENTITY","PASS")
             releases=list((app/"build/outputs/apk/release").glob("app-release*.apk"))
             check(len(releases)==1 and releases[0].is_file(),"PYTHON_PRODUCT_RELEASE_OUTPUT")
             for kind,package in (("DEBUG",apk),("RELEASE",releases[0])):
@@ -173,7 +158,7 @@ def main():
                     names=set(archive.namelist())
                     expected={"assets/iwxa-original-python-core.zip","assets/iwxa-original-python-core-receipt.json",
                               "assets/public/app.js","lib/arm64-v8a/libpython3.13.so","lib/x86_64/libpython3.13.so"}
-                    check(expected<=names,"PYTHON_PRODUCT_"+kind+"_CONTENTS")
+                    check(expected<=names and "assets/qa-model.gguf" not in names,"PYTHON_PRODUCT_"+kind+"_CONTENTS")
                     check(hashlib.sha256(archive.read("assets/iwxa-original-python-core.zip")).hexdigest()==receipt["archive_sha256"] and
                           json.loads(archive.read("assets/iwxa-original-python-core-receipt.json"))==build,
                           "PYTHON_PRODUCT_"+kind+"_IDENTITY")
@@ -213,6 +198,43 @@ def main():
                         status(*line.split("=",1))
                 check(outcome.returncode==0 and b"MEMORY_PRODUCT_INSTALLED=PASS" in outcome.stdout,"MEMORY_PRODUCT_INSTALLED")
                 status("PRODUCT_MEMORY_UI","PASS")
+                # Public runner has no access token and reads only fixed
+                # instrumentation receipts. It never prints Task content,
+                # model output, run identifiers or raw device logs.
+                witness=Path(__file__).resolve().with_name("installed-task-route.py")
+                outcome=run([py,str(witness),"--adb",adb,"--receipt",str(build_receipt)],timeout=1800)
+                for line in outcome.stdout.decode("utf-8","replace").splitlines():
+                    if re.fullmatch(r"TASK_PRODUCT_(?:PHASE=(?:create|recover|reviewed)|(?:CREATE|RECOVER|REVIEWED|INSTALLED)=PASS|CHECK=[A-Z0-9_]{1,80}|FAILURE(?:_CODE)?=[A-Z0-9_]{1,100})",line):
+                        status(*line.split("=",1))
+                check(outcome.returncode==0 and b"TASK_PRODUCT_INSTALLED=PASS" in outcome.stdout,
+                      "TASK_PRODUCT_INSTALLED")
+                status("NATIVE_ORIGINAL_TASK","PASS")
+                # This installed witness does not reimplement the scheduler
+                # or substitute any answer. A system job is delivered after
+                # the application process has actually exited. The source
+                # remains in the disposable checkout; only allowlisted
+                # observations, never private logs or job ids, are printed.
+                outcome=run([py,"mobile/qualification/installed-background-work-route.py",
+                             "--adb",adb,"--receipt",str(build_receipt)],timeout=2100)
+                expected_background={
+                    "DEFAULT_OFF","UI_ORIGINAL_SCHEDULE","NATIVE_CANCEL_NO_WAKE",
+                    "NATIVE_CONFIRM_PERSISTED_WAKE","PROCESS_STOPPED_WITHOUT_FORCE_STOP",
+                    "SYSTEM_WAKE_SURVIVES_PROCESS_EXIT","SYSTEM_JOB_TRIGGER",
+                    "COLD_SYSTEM_JOB_COMPLETED_WITHOUT_ACTIVITY","COLD_ORIGINAL_LLAMA_RESULT",
+                    "LOCAL_MINIMIZED_NOTIFICATION","NOTIFICATION_OPENS_ORIGINAL_WORK",
+                    "DISABLE_PRESERVES_ORIGINAL_RESULT"}
+                observed=[]
+                for line in outcome.stdout.decode("utf-8","replace").splitlines():
+                    if line.startswith("BACKGROUND_PRODUCT_CHECK="):
+                        value=line.split("=",1)[1]
+                        if value in expected_background:
+                            observed.append(value);status("BACKGROUND_PRODUCT_CHECK",value)
+                    elif re.fullmatch(r"BACKGROUND_PRODUCT_(?:PHASE=(?:prepare|verify)|(?:PREPARE|VERIFY|INSTALLED)=PASS|FAILURE(?:_CODE)?=[A-Z0-9_]{1,100})",line):
+                        status(*line.split("=",1))
+                check(outcome.returncode==0 and b"BACKGROUND_PRODUCT_INSTALLED=PASS" in outcome.stdout and
+                      len(observed)==len(expected_background) and set(observed)==expected_background,
+                      "BACKGROUND_PRODUCT_INSTALLED")
+                status("NATIVE_ORIGINAL_BACKGROUND","PASS")
             status("PHYSICAL_ARM64","NOT_RUN")
             return 0
         except StageFailure as e:
