@@ -23,6 +23,6 @@ assert.deepEqual(Object.keys(request).sort(),['pins','prepared','profile','reaso
 assert.equal(request.workflow,workflow);
 assert.equal(request.prepared,before);
 assert.equal(request.profile,'original-workflow-program-input-task');;
-assert.deepEqual(request.pins,{professionalAgent:'51b0f6fa52fd674cf273ec85251808154f2037d8',workspaceKnowledge:'3091ddedd2d2eedce9a5bd475ac91eab31631a4c'});;
+assert.deepEqual(request.pins,{professionalAgent:'51b0f6fa52fd674cf273ec85251808154f2037d8',workspaceKnowledge:'1caf102f4f1c5ddb38b6701b5f493a81b89992d0'});;
 assert.equal(request.reason,'Qualify exact original Work Asset readback and native approved program Task and cold Result');;
 console.log('EXACT_ONE_SHOT_WORKFLOW_REQUEST_PASS');

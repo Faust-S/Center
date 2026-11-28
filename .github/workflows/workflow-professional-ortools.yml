@@ -24,13 +24,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 3091ddedd2d2eedce9a5bd475ac91eab31631a4c
+          ref: 1caf102f4f1c5ddb38b6701b5f493a81b89992d0
           path: workspace-source
           persist-credentials: false
       - name: Original source owner and native reader tests
         working-directory: workspace-source
         run: |
-          test "$(git rev-parse HEAD)" = "3091ddedd2d2eedce9a5bd475ac91eab31631a4c"
+          test "$(git rev-parse HEAD)" = "1caf102f4f1c5ddb38b6701b5f493a81b89992d0"
           node --test packages/t3-core/tests/c3-workspace-method-stage-results.test.mjs
       - name: Original TypeScript
         working-directory: workspace-source/packages/t3-core
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 3091ddedd2d2eedce9a5bd475ac91eab31631a4c
+          ref: 1caf102f4f1c5ddb38b6701b5f493a81b89992d0
           path: workspace-source
           persist-credentials: false
       - name: Require authorized private read-only checkout
@@ -83,7 +83,7 @@ jobs:
       - name: Exact native dependencies
         run: |
           test "$(git -C professional-agent rev-parse HEAD)" = "51b0f6fa52fd674cf273ec85251808154f2037d8"
-          test "$(git -C workspace-source rev-parse HEAD)" = "3091ddedd2d2eedce9a5bd475ac91eab31631a4c"
+          test "$(git -C workspace-source rev-parse HEAD)" = "1caf102f4f1c5ddb38b6701b5f493a81b89992d0"
           python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
       - name: Original allocation regression
         working-directory: professional-agent
