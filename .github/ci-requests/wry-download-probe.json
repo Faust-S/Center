@@ -1,0 +1,15 @@
+{
+  "workflow": "wry-download-probe",
+  "prepared_sha": "065b8256d82830f39ac97e9d0e1d921bd5049fee",
+  "profile": {
+    "wry": "0.57.1",
+    "tao": "0.37.2",
+    "webview2-com": "0.39.1",
+    "modes": [
+      "invoke",
+      "keyboard",
+      "mixed"
+    ]
+  },
+  "purpose": "native-download-event-isolation"
+}
