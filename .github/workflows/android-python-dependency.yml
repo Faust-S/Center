@@ -33,7 +33,7 @@ jobs:
           python -m pip install 'cibuildwheel==4.2.1'
           rustc --version
           cargo --version
-          python -m cibuildwheel --version
+          python -c "from importlib.metadata import version; assert version('cibuildwheel') == '4.2.1'; print('CIBUILDWHEEL=4.2.1')"
       - name: Compile original rpds for Android and test native import on matching emulator
         env:
           CIBW_BUILD_VERBOSITY: '1'
