@@ -1,0 +1,11 @@
+{
+  "candidate": "6699e154a73bf0d5c04e00d8cd84531e155dfb54",
+  "tree": "0910c40aca76aef6c9f6340bd3406257e8e15fe4",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M25_3_BACKGROUND_CANCELLATION_AND_UI_TARGETED",
+  "reason": "QUALIFY_PRECLAIM_STOP_ORIGINAL_RETRY_AND_ACTUAL_RENDERER_BACKGROUND_CONSENT",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "faba1e7e0d51854df4163e5a71ea939b1a7cbc6a"
+}
