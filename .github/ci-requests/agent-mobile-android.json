@@ -1,0 +1,11 @@
+{
+  "candidate": "3eeccc229af27bb3db331d31ffe17cd47b849a33",
+  "tree": "6fe7ac2696480bff7d1bd0b2d11e91a37f72f0f8",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M23_4_ORIGINAL_MOBILE_TASK_ARCHIVE_HOST",
+  "reason": "QUALIFY_EXACT_PACKAGED_TASK_CONTEXT_SESSION_MODEL_PORT_AND_ORIGINAL_RECOVERY",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "ac46e1fe76ae267eb8ed01f834624de978dadef0"
+}
