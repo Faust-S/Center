@@ -1,4 +1,4 @@
-name: IWXA packaged original mobile Task qualification
+name: IWXA mobile work port targeted qualification
 on:
   push:
     branches: ['ci/once/agent-mobile-android/*']
@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: '3eeccc229af27bb3db331d31ffe17cd47b849a33'
-      PRIVATE_TREE: '6fe7ac2696480bff7d1bd0b2d11e91a37f72f0f8'
+      PRIVATE_PIN: 'bbd017268217dc290eb62fe01cca8c8a6c022a4b'
+      PRIVATE_TREE: '8259699a15c4dbefad9b6bd9e02efb9417ebe922'
       T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
       T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:
