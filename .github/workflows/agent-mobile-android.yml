@@ -1,4 +1,4 @@
-name: IWXA original Python Android qualification
+name: IWXA Android product memory qualification
 on:
   push:
     branches: ['ci/once/agent-mobile-android/*']
@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
-      PRIVATE_PIN: '8290669ffb7ae5756f8163bb908b42bcbcc38a1f'
-      PRIVATE_TREE: 'fa91f36c143f7106210949aa557f3e992f5aeabb'
+      PRIVATE_PIN: '89cd9da002c227d656bb20882b52c97828096d35'
+      PRIVATE_TREE: 'f8bd2d46b90a91b96a487251733f1d7ecb03a2dd'
       T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
       T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:
@@ -58,7 +58,7 @@ jobs:
           command -v kotlinc
           command -v cmake
           echo PUBLIC_WHEELHOUSE=PASS
-      - name: Qualify original private owners without exporting source or raw logs
+      - name: Qualify installed product memory without exporting private code or raw logs
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: python3 .ci/agent-mobile-android/qualify-original-python.py

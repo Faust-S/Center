@@ -1,9 +1,9 @@
 {
-  "candidate": "8290669ffb7ae5756f8163bb908b42bcbcc38a1f",
-  "tree": "fa91f36c143f7106210949aa557f3e992f5aeabb",
+  "candidate": "89cd9da002c227d656bb20882b52c97828096d35",
+  "tree": "f8bd2d46b90a91b96a487251733f1d7ecb03a2dd",
   "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
   "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
-  "scope": "M22_3_ORIGINAL_PYTHON_ANDROID_OWNERS",
-  "reason": "QUALIFY_EXISTING_MEMORY_AND_SCHEDULING_IN_EMBEDDED_CPYTHON",
+  "scope": "M22_7_ORIGINAL_MEMORY_PRODUCT_ANDROID",
+  "reason": "QUALIFY_ORIGINAL_MEMORY_UI_AND_COLD_RESTART_IN_PRODUCT_APK",
   "physical": "NOT_RUN"
 }
