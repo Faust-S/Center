@@ -1,9 +1,9 @@
 {
-  "candidate": "3eeccc229af27bb3db331d31ffe17cd47b849a33",
-  "tree": "6fe7ac2696480bff7d1bd0b2d11e91a37f72f0f8",
+  "candidate": "bbd017268217dc290eb62fe01cca8c8a6c022a4b",
+  "tree": "8259699a15c4dbefad9b6bd9e02efb9417ebe922",
   "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
   "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
-  "scope": "M23_4_ORIGINAL_MOBILE_TASK_ARCHIVE_HOST",
-  "reason": "QUALIFY_EXACT_PACKAGED_TASK_CONTEXT_SESSION_MODEL_PORT_AND_ORIGINAL_RECOVERY",
+  "scope": "M23_8_ORIGINAL_MOBILE_TASK_NATIVE",
+  "reason": "QUALIFY_NATIVE_LLAMA_TASK_AND_COLD_RESULT_AFTER_EXACT_HOST_PASS_46131544047",
   "physical": "NOT_RUN"
 }
