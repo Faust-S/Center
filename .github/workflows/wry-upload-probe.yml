@@ -1,0 +1,43 @@
+name: Wry native file picker isolation
+on:
+  push:
+    branches:
+      - 'ci/once/wry-upload-probe/*'
+    paths:
+      - '.github/ci-requests/wry-upload-probe.json'
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-agent066-browser-qualification
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: ${{ github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact isolated diagnostic
+        shell: pwsh
+        env:
+          PREPARED_SHA: ${{ github.event.before }}
+        run: python .ci/wry-upload-probe/admit.py
+      - name: Verify fixture and evidence classifier
+        run: python .ci/wry-upload-probe/probe.py --selftest
+      - name: Parse native driver before compiling
+        shell: powershell
+        run: |
+          $tokens=$null;$errors=$null
+          $null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) '.ci/wry-upload-probe/driver.ps1'),[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){exit 1}
+      - name: Build only public Wry probe
+        shell: pwsh
+        run: |
+          cargo +stable build --manifest-path .ci/wry-upload-probe/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Observe native file selection and exact upload bytes
+        run: python .ci/wry-upload-probe/probe.py --exe .ci/wry-upload-probe/target/debug/download-probe.exe

@@ -1,0 +1,9 @@
+[package]
+name = "download-probe"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tao = "=0.37.2"
+wry = "=0.57.1"
+webview2-com = "=0.39.1"
