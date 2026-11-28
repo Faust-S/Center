@@ -342,6 +342,70 @@ function Find-InstalledAtlas{
  }
  throw 'EMPLOYEE_LICENSED_ATLAS_WINDOW_NOT_OBSERVED'
 }
+# Original installed Atlas close handling, reused from the successful U05 lane.
+function Close-AtlasClean($proc) {
+ if($null -eq $proc){return}
+ $proc.Refresh()
+ if(!$proc.HasExited){
+   Write-Host 'U05_ATLAS_CLOSE_REQUESTED'
+   if(![CorporateQualificationGui]::PostMessage($proc.MainWindowHandle,0x0010,
+       [IntPtr]::Zero,[IntPtr]::Zero)){throw 'U05_ATLAS_CLOSE_SIGNAL_FAILED'}
+   # The real Atlas close handler dismisses transient previews first and
+   # deliberately blocks close during a write. Do not discard a draft or
+   # force-kill a process and call that a successful cold reopen.
+   $resent=$false
+   for($i=0;$i -lt 120;$i++){
+     if($proc.WaitForExit(250)){break}
+     $proc.Refresh()
+     if($proc.HasExited){break}
+     if($proc.MainWindowHandle -eq [IntPtr]::Zero){continue}
+     try {
+       $controls=@((Window $proc).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+         [System.Windows.Automation.Condition]::TrueCondition))
+     } catch {
+       # Native close can finish between the process check and UIA lookup.
+       $proc.Refresh()
+       if($proc.HasExited){break}
+       throw
+     }
+     $visible=@(foreach($item in $controls){
+       try{if(!$item.Current.IsOffscreen -and $item.Current.Name){$item}}catch{}
+     })
+     $names=@($visible|ForEach-Object {try{[string]$_.Current.Name}catch{''}})
+     if($names -contains 'Закрыть IWXA Atlas?'){
+       if($names -contains 'В портфеле есть изменения, которые пока не записаны на диск.' -or
+          $names -contains 'Открытая форма ещё не применена. Вернитесь, примените её к черновику и сохраните.'){
+         throw 'U05_ATLAS_CLOSE_UNEXPECTED_UNSAVED_DATA'
+       }
+       if($names -contains 'Завершается запись или чтение. Закрытие пока недоступно.'){continue}
+       if($names -contains 'Все изменения портфеля сохранены.'){
+         # Only the explicitly clean guard may use this button. No actual
+         # changes are discarded, and the original Store remains untouched.
+         $button=@($visible|Where-Object {try{
+           $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+           $_.Current.Name -ceq 'Закрыть без сохранения' -and $_.Current.IsEnabled
+         }catch{$false}})
+         if($button.Count -eq 1){
+           $button[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+           Write-Host 'U05_ATLAS_CLEAN_CLOSE_GUARD_CONFIRMED'
+           if(!$proc.WaitForExit(10000)){throw 'U05_ATLAS_CLEAN_CLOSE_GUARD_TIMEOUT'}
+           break
+         }
+       }
+     }elseif(!$resent -and $i -ge 8){
+       # First WM_CLOSE can dismiss a transient review without closing.
+       # One explicit second close is permitted, never an unbounded loop.
+       $resent=$true
+       [void][CorporateQualificationGui]::PostMessage($proc.MainWindowHandle,0x0010,
+         [IntPtr]::Zero,[IntPtr]::Zero)
+       Write-Host 'U05_ATLAS_SECOND_CLOSE_REQUESTED'
+     }
+   }
+   $proc.Refresh()
+   if(!$proc.HasExited){throw 'U05_ATLAS_GUI_CLOSE_TIMEOUT'}
+ }
+ Write-Host 'U05_ATLAS_GUI_CLOSED'
+}
 function Publish-AtlasReturn($process,$expectedRef,$expectedResult){
  $null=Read-AtlasReturnedResult $process $taskId $expectedRef $expectedResult
  Press $process 'Подготовить или проверить передачу'
@@ -603,7 +667,7 @@ try{
   $null=Open-ExactEmployee $cen $person
   $atlas=Publish-AtlasReturn $cen $atlasRef $sourceResult
   Stage 'CENTER_ATLAS_COLD_PUBLICATION_READBACK'
-  Stop-App $atlas;$atlas=$null
+  Close-AtlasClean $atlas;$atlas=$null
   Stop-App $cen;$cen=Start-App $CenterExe
   $null=Open-ExactEmployee $cen $person
   $null=Read-AtlasReturnedResult $cen $taskId $atlasRef $sourceResult
