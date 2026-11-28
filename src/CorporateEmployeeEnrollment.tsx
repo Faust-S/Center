@@ -92,12 +92,34 @@ function AtlasWorkspaceResults({task,session,execute,run,busy,invoke}:{
    setGrantStatus(state);
    return state;
  };
- const prepare=()=>run('Исходный Result проверен для передачи в Atlas.',async()=>{
+ const observeRecorded=async(p:any,r:any)=>{
+   const source=originalAtlasWorkspacePublicationReference(view,p,r,session);
+   try{
+     const owner=await createNativeAtlasPort(invoke).openPublicAtlas(session.organizationId);
+     const observation=readNativeAtlasRecordedResult(owner,source);
+     setRecorded(observation);
+     return observation.status==='RECORDED';
+   }catch(e){setRecorded({status:'UNAVAILABLE',revision:''});return false;}
+ };
+ const prepare=()=>run('Состояние передачи выбранного Result проверено.',async()=>{
    if(!canPublish||!selected?.portableContentAvailable)return false;
    setPreview(null);setPublication(null);setAttempted(false);setRecorded(null);setLocalHandoff('');
    if(await readGrant()!=='ACTIVE')return false;
    const value=await execute('d3AtlasWorkspaceResultPreview',selection());
-   setPreview(validateOriginalAtlasWorkspacePublicationPreview(value,view,session));
+   const checked=validateOriginalAtlasWorkspacePublicationPreview(value,view,session);
+   setPreview(checked);
+   // After cold reopen, a known committed original publication needs only
+   // its original receipt and the read-only Atlas head. Do not request
+   // another signature or make the manager repeat two readback clicks.
+   // Unknown/prepared outcomes still require the explicit recovery control.
+   if(checked.status==='ALREADY_COMMITTED'){
+     const original=await execute('d3AtlasWorkspaceResultRecover',selection());
+     const recovered=validateOriginalAtlasWorkspacePublicationReceipt(original,checked);
+     setPublication(recovered);
+     if(recovered.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED')
+       await observeRecorded(checked,recovered);
+     else if(recovered.status==='NOT_PUBLISHED_CONFIRMED')setPreview(null);
+   }
  });
  const issueGrant=()=>run('Право передачи в Atlas подтверждено.',async()=>{
    if(!canPublish||!selected||!['NOT_ACTIVE','NOT_ISSUED'].includes(grantStatus))return false;
@@ -121,19 +143,16 @@ function AtlasWorkspaceResults({task,session,execute,run,busy,invoke}:{
  const recover=()=>run('Исходная публикация перечитана без повторного подписания.',async()=>{
    if(!canPublish||!preview||!selected)return false;
    const value=await execute('d3AtlasWorkspaceResultRecover',selection());
-   setPublication(validateOriginalAtlasWorkspacePublicationReceipt(value,preview));
-   if(value.status==='NOT_PUBLISHED_CONFIRMED'){setPreview(null);setAttempted(false);}
+   const recovered=validateOriginalAtlasWorkspacePublicationReceipt(value,preview);
+   setPublication(recovered);
+   if(recovered.status==='NOT_PUBLISHED_CONFIRMED'){setPreview(null);setAttempted(false);}
+   else if(recovered.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED')
+     await observeRecorded(preview,recovered);
  });
  const readAtlasReceipt=()=>run('Сохранённый результат проверен в Atlas.',async()=>{
    if(!canPublish||!preview||publication?.status!=='ORIGINAL_ADMIN_RESULT_PUBLISHED')return false;
    setRecorded(null);
-   const source=originalAtlasWorkspacePublicationReference(view,preview,publication,session);
-   try{
-     const owner=await createNativeAtlasPort(invoke).openPublicAtlas(session.organizationId);
-     const observation=readNativeAtlasRecordedResult(owner,source);
-     setRecorded(observation);
-     return observation.status==='RECORDED';
-   }catch(e){setRecorded({status:'UNAVAILABLE',revision:''});return false;}
+   return observeRecorded(preview,publication);
  });
  const openAtlas=()=>run('Запрос открытия Result в Atlas передан. Подтвердите получение в Atlas.',async()=>{
    if(!canPublish||!selected||!preview||publication?.status!=='ORIGINAL_ADMIN_RESULT_PUBLISHED')return false;
@@ -199,7 +218,7 @@ function AtlasWorkspaceResults({task,session,execute,run,busy,invoke}:{
          {!canPublish?<small>Подключите оригинальный T3 Owner с поддержкой передачи из Workspace.</small>:<>
            <div className="actions">
              <button type="button" className="secondary" disabled={busy}
-               onClick={()=>void prepare()}>Подготовить передачу</button>
+               onClick={()=>void prepare()}>Подготовить или проверить передачу</button>
              {['NOT_ACTIVE','NOT_ISSUED'].includes(grantStatus)&&
                <button type="button" className="secondary" disabled={busy}
                  onClick={()=>void issueGrant()}>Разрешить передачу в Atlas</button>}
@@ -226,7 +245,7 @@ function AtlasWorkspaceResults({task,session,execute,run,busy,invoke}:{
                <button type="button" className="secondary" disabled={busy}
                  data-testid="d3-atlas-workspace-export"
                  onClick={()=>void save()}>Сохранить Result .iwxa для Atlas</button>
-               <small>Для передачи на другой компьютер или ручного открытия сохраните .iwxa.</small>
+               <small>Для ручного открытия сохраните подписанный .iwxa.</small>
                <button type="button" className="secondary" disabled={busy}
                  data-testid="d3-atlas-workspace-receipt-read"
                  onClick={()=>void readAtlasReceipt()}>Проверить получение в Atlas</button>
