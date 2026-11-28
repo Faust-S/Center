@@ -48,7 +48,7 @@ def main():
                 if m:
                     return name+":"+m[1]+":"+(m[2] or "0")
             return None
-        p=run(["npm","run","check:source"],mobile,timeout=240)
+        p=run(["node","--experimental-strip-types","--test","qualification/remote-draft-navigation.test.mjs","qualification/original-memory.test.mjs","qualification/memory-actions.test.mjs"],mobile,timeout=180)
         raw=p.stdout.decode("utf-8","replace")
         for line in raw.splitlines():
             m=re.fullmatch(r"# (tests|pass|fail|cancelled|skipped|todo) (\d{1,6})\s*",line)
@@ -80,8 +80,9 @@ def main():
         if t.returncode:
             for kind in ("ModuleNotFoundError","ImportError","AssertionError","SyntaxError"):
                 if kind.encode() in t.stdout:status("PORT_FAILURE_CLASS",kind)
-        status("SOURCE","PASS" if p.returncode==0 else "FAIL")
-        return 0 if p.returncode==0 else 1
+        ok=p.returncode==0 and t.returncode==0 and re.findall(r"(?m)^# tests (\d+)\s*$",raw)==["164"] and re.findall(r"(?m)^# pass (\d+)\s*$",raw)==["164"]
+        status("TARGETED_SOURCE","PASS" if ok else "FAIL")
+        return 0 if ok else 1
 if __name__=="__main__":
     try:code=main()
     except (OSError,ValueError,KeyError,subprocess.TimeoutExpired):

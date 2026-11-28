@@ -1,4 +1,4 @@
-name: IWXA Android source failure diagnosis
+name: IWXA Android targeted renderer regression
 on:
   push:
     branches: ['ci/once/agent-mobile-android/*']
@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      PRIVATE_PIN: '89cd9da002c227d656bb20882b52c97828096d35'
-      PRIVATE_TREE: 'f8bd2d46b90a91b96a487251733f1d7ecb03a2dd'
+      PRIVATE_PIN: 'a551642db659c54c589e7d78b240188b9978e83c'
+      PRIVATE_TREE: '3c87949f5d9e01ee6d64b1355549d9555fe5606e'
       T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
       T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:
