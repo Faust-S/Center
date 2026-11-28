@@ -173,6 +173,7 @@ function Read-AtlasWorkRef{
   $file=Join-Path $store ('blocks/'+$entry.sha256+'.json')
   Need ((Digest $file) -ceq [string]$entry.sha256) 'EMPLOYEE_LICENSED_ATLAS_BLOCK_CHANGED'
   $project=Get-Content -LiteralPath $file -Raw|ConvertFrom-Json -Depth 100
+  Need ([string]$project.id -ceq [string]$entry.id) 'EMPLOYEE_LICENSED_ATLAS_BLOCK_ID_CHANGED'
   if($project.name -ceq 'U05OwnerProject'){
    $works=@($project.items|Where-Object {$_.title -ceq 'U05OwnerAlpha'})
    Need ($works.Count -eq 1) 'EMPLOYEE_LICENSED_ATLAS_WORK_AMBIGUOUS'
@@ -309,7 +310,13 @@ function Prepare-AtlasDraft($process,[string]$title,[string]$expectedPerson){
  return $ref
 }
 function Read-AtlasReturnedResult($process,[string]$id,$expectedRef,$expectedResult){
- $pending=Read-Edit $process 'Исходный ID поручения'
+ $pending=''
+ for($i=0;$i -lt 120;$i++){
+  $pending=Read-Edit $process 'Исходный ID поручения'
+  if($pending -ceq $id){break}
+  if($pending){throw 'EMPLOYEE_LICENSED_ATLAS_PENDING_TASK_CHANGED'}
+  Start-Sleep -Milliseconds 250
+ }
  Need ($pending -ceq $id) 'EMPLOYEE_LICENSED_ATLAS_PENDING_TASK_CHANGED'
  Press $process 'Перечитать подписанную Task'
  Wait-Text $process 'Подписанная ссылка на Atlas: проект' 240
