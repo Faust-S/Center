@@ -38,6 +38,38 @@ fn validate_hex(value:Option<&str>)->bool{
     value.is_some_and(|s|s.len()==SHA_LEN &&
         s.bytes().all(|b|b.is_ascii_hexdigit()&&!b.is_ascii_uppercase()))
 }
+// The original signed publication remains in T3. Only disposable handoff
+// copies owned by this product may be removed; ordinary user exports are
+// never placed here. Do not let interrupted local openings accumulate.
+fn atlas_handoff_directory(app:&AppHandle)->Result<PathBuf,String>{
+    let directory=crate::center_product_data_root(app)?.join("atlas-handoff");
+    fs::create_dir_all(&directory).map_err(|_|"CEN_D3_ATLAS_HANDOFF_DIRECTORY_FAILED")?;
+    let metadata=fs::symlink_metadata(&directory)
+        .map_err(|_|"CEN_D3_ATLAS_HANDOFF_DIRECTORY_FAILED")?;
+    if !metadata.is_dir()||metadata.file_type().is_symlink(){
+        return Err("CEN_D3_ATLAS_HANDOFF_DIRECTORY_INVALID".into());
+    }
+    // This is a best-effort cleanup, not a transport or reconciliation
+    // decision. Fresh copies may be open in Atlas; leave them untouched.
+    if let Ok(entries)=fs::read_dir(&directory){
+        for entry in entries.flatten(){
+            let path=entry.path();
+            if path.extension().and_then(|v|v.to_str())!=Some("iwxa")||
+               !path.file_stem().and_then(|v|v.to_str()).is_some_and(|v|
+                   Uuid::parse_str(v).is_ok_and(|id|id.to_string()==v)){
+                continue;
+            }
+            if let Ok(meta)=fs::symlink_metadata(&path){
+                if meta.is_file()&&!meta.file_type().is_symlink()&&
+                   meta.modified().ok().and_then(|t|t.elapsed().ok())
+                       .is_some_and(|age|age>=Duration::from_secs(24*60*60)){
+                    let _=fs::remove_file(&path);
+                }
+            }
+        }
+    }
+    Ok(directory)
+}
 fn atlas_publication_operation(value:&Value)->bool{
     value.as_str().and_then(|s|s.strip_prefix("admin:t3:atlas:"))
         .is_some_and(|s|validate_hex(Some(s)))
@@ -1609,8 +1641,7 @@ pub async fn center_corporate_action(
     let selected_path=if let Some((handoff_id,_,_))=&local_handoff{
         // Disposable original export copy, resolved by Atlas from the
         // same Setup Core data location. No second durable Result ledger.
-        let directory=crate::center_product_data_root(&app)?.join("atlas-handoff");
-        fs::create_dir_all(&directory).map_err(|_|"CEN_D3_ATLAS_HANDOFF_DIRECTORY_FAILED")?;
+        let directory=atlas_handoff_directory(&app)?;
         Some(directory.join(format!("{}.iwxa",handoff_id)))
     }else if operation=="d3Receive"{
         let selection=rfd::FileDialog::new()
@@ -1830,6 +1861,13 @@ pub async fn center_corporate_action(
                 Ok(observation)=>observation,
                 Err(reason)=>json!({"status":"HANDOFF_UNCONFIRMED","reason":reason,"delivered":false}),
             };
+            // The receiver definitively refused to queue this locator.
+            // On unknown window-message outcomes leave the copy available
+            // until consumption or ordinary expiry; never re-sign.
+            if matches!(result["localHandoff"]["navigation"].as_str(),
+                Some("NOT_SUPPORTED"|"REQUEST_INVALID"|"REQUEST_NOT_QUEUED")){
+                if let Some(path)=source_for_owner.as_ref(){let _=fs::remove_file(path);}
+            }
         }
         if operation=="d3EmployeeBootstrapProfile"{
             let p=&result["profile"];
