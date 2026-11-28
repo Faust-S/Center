@@ -1,0 +1,11 @@
+{
+  "candidate": "18338d8fa24f89659fddb8a5d3fbb6a7fff1e090",
+  "tree": "9dfc51dc9bf3349ac425655a5acb62ab80fb5f7f",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M26_1_ORIGINAL_GOAL_BOARD_GRAPH_PORTABLE",
+  "reason": "QUALIFY_EXACT_M28_PORTABLE_GRAPH_OWNERS_AND_ACCEPTED_TASK_PLAN_BINDING_WITHOUT_ANDROID_REBUILD",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "77f4d3fb0c76d8079d24acf1ade26b7df568bb11"
+}
