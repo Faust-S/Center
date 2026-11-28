@@ -1,0 +1,13 @@
+{
+  "workflow": "center",
+  "prepared_sha": "53fde904e579e2e8f096d05efc160b4f84b2d0cc",
+  "profile": "atlas-native",
+  "pins": {
+    "atlas": "ec2a48aecb2efe1ca3a97739977be6992d4b8a60",
+    "brtest": "7cfb17870042cac824644140b7f0a587e244a20e",
+    "setup_core": "0ef7544e2a6fd5fab5994f7f25abbb960063908c",
+    "t3": "962cff41fdbfc864c4c15010b9ffa7e9bc43c29c",
+    "one_core": "4e7c8a9370f302a711e52aa80adaa314f2d52f02"
+  },
+  "reason": "Resolve the remaining native signed-result GUI failure from run 46126071969 with explicit enabled-control readiness, bounded private diagnostics and the updated Center employee roster regression. No full product or parallel rerun."
+}
