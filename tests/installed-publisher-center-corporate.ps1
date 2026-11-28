@@ -184,8 +184,15 @@ function Read-Native([string]$exe,[string[]]$arguments){
     $err=$process.StandardError.ReadToEndAsync()
     if(!$process.WaitForExit(90000)){$process.Kill();throw 'CORPORATE_NATIVE_READ_TIMEOUT'}
     $raw=$out.GetAwaiter().GetResult()
-    $null=$err.GetAwaiter().GetResult()
+    $diagnostic=$err.GetAwaiter().GetResult()
     if($process.ExitCode -ne 0 -or $raw.Length -gt 262144){
+      # Only the original bounded machine code, never paths, stdout or raw stderr.
+      $verb=[string]$arguments[0]
+      $code=$diagnostic.Trim()
+      if($verb -cmatch '^corporate-(capabilities|inventory|signed-readback|read)$' -and
+         $code -cmatch '^(?:CORPORATE|PRODUCT_OWNER|T3|INTEROP|PERSON)_[A-Z0-9_]{3,95}$'){
+        Write-Host ('CORPORATE_TWO_INSTALLED_NATIVE_READ_DETAIL='+$verb.ToUpperInvariant()+':'+$code)
+      }
       throw ('CORPORATE_NATIVE_READ_FAILED '+$arguments[0])
     }
     $r=$raw|ConvertFrom-Json -Depth 60
