@@ -1,4 +1,4 @@
-name: Workspace original alternative lifecycle
+name: Original Workflow program Work native Task
 on:
   push:
     branches: ['ci/once/workflow-professional-ortools/**']
@@ -6,10 +6,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: original-workspace-alternative-lifecycle
+  group: original-workflow-program-input
   cancel-in-progress: false
 jobs:
-  workspace-comparison:
+  workspace-source:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -24,20 +24,82 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 020a22b52af839e39eab8dcfc4a0c1f88b184bd2
+          ref: 3091ddedd2d2eedce9a5bd475ac91eab31631a4c
           path: workspace-source
           persist-credentials: false
-      - name: Original alternative creation recovery and trusted Host regressions
+      - name: Original source owner and native reader tests
+        working-directory: workspace-source
+        run: |
+          test "$(git rev-parse HEAD)" = "3091ddedd2d2eedce9a5bd475ac91eab31631a4c"
+          node --test packages/t3-core/tests/c3-workspace-method-stage-results.test.mjs
+      - name: Original TypeScript
         working-directory: workspace-source/packages/t3-core
         run: |
-          test "$(git rev-parse HEAD)" = "020a22b52af839e39eab8dcfc4a0c1f88b184bd2"
-          node --test tests/c3-workspace-method-comparison.test.mjs tests/c3-workspace-method-stage-results.test.mjs tests/c3-workspace-method-source-lifecycle.test.mjs tests/c3-workspace-method-revision-apply.test.mjs
-      - name: Locked Workspace dependencies
-        working-directory: workspace-source/packages/t3-core
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Original Workspace TypeScript
-        working-directory: workspace-source/packages/t3-core
-        run: npm run typecheck
-      - name: Original Workspace presentation tests
-        working-directory: workspace-source/packages/t3-core
-        run: npm run test:product:workspace -- tests/rich-workspace-read-model.dom.test.tsx
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+  native-program:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: node qualification/validate-professional-ortools-request.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 3091ddedd2d2eedce9a5bd475ac91eab31631a4c
+          path: workspace-source
+          persist-credentials: false
+      - name: Require authorized private read-only checkout
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: test -n "$PRIVATE_SOURCE_TOKEN" || { echo PROFESSIONAL_SOURCE_ACCESS_REQUIRED; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 51b0f6fa52fd674cf273ec85251808154f2037d8
+          path: professional-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Exact native dependencies
+        run: |
+          test "$(git -C professional-agent rev-parse HEAD)" = "51b0f6fa52fd674cf273ec85251808154f2037d8"
+          test "$(git -C workspace-source rev-parse HEAD)" = "3091ddedd2d2eedce9a5bd475ac91eab31631a4c"
+          python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
+      - name: Original allocation regression
+        working-directory: professional-agent
+        run: |
+          rc=0
+          python -m pytest -q tests/test_agent067_ortools_allocation.py --junitxml="$RUNNER_TEMP/professional-allocation.xml" > "$RUNNER_TEMP/professional-allocation-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-allocation.xml" ALLOCATION_REGRESSION 20 strict || exit 1
+          test "$rc" = 0
+      - name: Native Work Task approval execution and cold Result
+        run: |
+          rc=0
+          python qualification/workflow-program-input.py professional-agent workspace-source > "$RUNNER_TEMP/professional-workflow-private.log" 2>&1 || rc=$?
+          python -c 'import re,sys; from pathlib import Path; t=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace"); print("\n".join(re.findall(r"^WORKFLOW_[A-Z_]+_PASS$",t,re.M))); print("\n".join(sorted(set(re.findall(r"(?:AssertionError|ValueError|KeyError|AttributeError|WitnessError|InteractionSurfaceError|CalledProcessError): (?:[A-Z_]+|[a-z_]+)",t)))))' "$RUNNER_TEMP/professional-workflow-private.log"
+          test "$rc" = 0
+      - name: Remove private source and diagnostics
+        if: always()
+        run: |
+          rm -rf professional-agent
+          rm -f "$RUNNER_TEMP"/professional-*.xml "$RUNNER_TEMP"/professional-*-private.log
