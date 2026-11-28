@@ -1,0 +1,15 @@
+{
+  "candidate": "fdc0a706f822fcfc624f12b23094e80cfa186c83",
+  "tree": "50bfd8fe63f2f397fd1d8d587cb34c1fc07fe035",
+  "baseline": "68128b4c9a2c7140ec3503ff0f775e5bcb50743e",
+  "baseline_tree": "73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2",
+  "scope": "B066_REMAINING_NATIVE_DEVELOPMENT",
+  "installed_gui": "REQUIRED",
+  "witness": "6c22834aaa85fd3e4528aa4877fd4a91dcdca27b",
+  "witness_tree": "129acce920b5988478c5eb8cc7c266440016d419",
+  "prior_run": 46132480100,
+  "prior_attempt": 1,
+  "prior_artifact": 15259880049,
+  "workflow": "agent066-browser-source",
+  "prepared_sha": "35a66488e10eeeb47a511097d96772d6f13c2d1f"
+}
