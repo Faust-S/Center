@@ -24,6 +24,7 @@ $firstWork='U05OwnerAlpha'
 $secondWork='U05OwnerBeta'
 $script:proc=$null
 $script:primaryFailure=$false
+$script:signedStage=''
 function Root {
  $proc.Refresh()
  if($proc.HasExited -or $proc.MainWindowHandle -eq [IntPtr]::Zero){
@@ -31,7 +32,7 @@ function Root {
  }
  return [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
 }
-function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false,[bool]$visibleOnly=$false){
+function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false,[bool]$visibleOnly=$false,[bool]$enabledOnly=$false){
  $target=switch($type){
    'Edit' {[System.Windows.Automation.ControlType]::Edit}
    'Text' {[System.Windows.Automation.ControlType]::Text}
@@ -45,6 +46,7 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false,[bo
        $label=[string]$item.Current.Name
        if($item.Current.ControlType -eq $target -and
           (!$visibleOnly -or !$item.Current.IsOffscreen) -and
+          (!$enabledOnly -or $item.Current.IsEnabled) -and
           (($contains -and $label.Contains($name)) -or (!$contains -and $label -eq $name))){
          return $item
        }
@@ -61,10 +63,23 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false,[bo
  }catch{}
  throw "U05_INSTALLED_ATLAS_CONTROL_NOT_FOUND $type $name title=$($proc.MainWindowTitle)"
 }
-function Click-UI([string]$name,[bool]$contains=$false){
- $element=Find-UI $name 'Button' $contains
- try{$element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()}
- catch{$element.SetFocus();[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')}
+function Click-UI([string]$name,[bool]$contains=$false,[bool]$requireReady=$false){
+ $element=Find-UI $name 'Button' $contains $requireReady $requireReady
+ if($requireReady){
+   # The native navigation notification can arrive before the asynchronous
+   # original Consumer route. Observe the enabled control, not just its label.
+   # Do not send a second activation after an uncertain Invoke outcome.
+   $pattern=$null
+   if($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$pattern)){
+     ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
+   }else{
+     $element.SetFocus()
+     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+   }
+ }else{
+   try{$element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()}
+   catch{$element.SetFocus();[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')}
+ }
  Start-Sleep -Milliseconds 350
 }
 function Fill-UI([string]$name,[string]$value){
@@ -227,6 +242,7 @@ function Await-SignedText([string]$fragment){
    Start-Sleep -Milliseconds 250
  }
  $stage=switch -Wildcard ($fragment){
+   'Result передан из Center*' {'HANDOFF_NOTICE'}
    'Оригинальный T3*' {'PREVIEW'}
    'Этот Result*' {'COLD_PREVIEW'}
    'План изменился с момента*' {'HISTORICAL_EDITION'}
@@ -264,7 +280,7 @@ function Open-AtlasFileMenu{
 }
 function Open-SignedFile([string]$archive){
  Open-AtlasFileMenu
- try{$control=Find-UI 'Принять подписанный Result .iwxa' 'Button' $false $true}
+ try{$control=Find-UI 'Принять подписанный Result .iwxa' 'Button' $false $true $true}
  catch{throw 'ATLAS_U05_SIGNED_FILE_ACTION_NOT_FOUND'}
  if(!$control.Current.IsEnabled -or $control.Current.IsOffscreen){throw 'ATLAS_U05_SIGNED_FILE_ACTION_DISABLED'}
  # Real keyboard activation preserves the WebView file picker's user gesture.
@@ -336,6 +352,7 @@ function Read-SignedDecision($saved,[string]$sha){
  return $null
 }
 function Receive-SignedResult{
+ $script:signedStage='PREPARE'
  $archive=$env:ATLAS_U05_SIGNED_RESULT_FILE
  $sha=$env:ATLAS_U05_SIGNED_RESULT_SHA256
  $issuedRevision=$env:ATLAS_U05_SIGNED_SOURCE_REVISION
@@ -371,9 +388,13 @@ function Receive-SignedResult{
    $handoffPath=Join-Path $handoffRoot ($handoffId+'.iwxa')
    Copy-Item -LiteralPath $archive -Destination $handoffPath
    try{
+     $script:signedStage='HANDOFF_LAUNCH'
      Start-Atlas @('--iwxa-open-result',$handoffId,$sha)
+     $script:signedStage='HANDOFF_NOTICE'
      Await-SignedText 'Result передан из Center'
-     Click-UI 'Открыть переданный Result'
+     $script:signedStage='HANDOFF_OPEN'
+     Click-UI 'Открыть переданный Result' $false $true
+     $script:signedStage='HANDOFF_PREVIEW'
      Assert-SignedPreview
      if(Test-Path -LiteralPath $handoffPath){throw 'ATLAS_U05_SIGNED_HANDOFF_NOT_CONSUMED'}
      Write-Host 'ATLAS_INSTALLED_SIGNED_LOCAL_HANDOFF_PREVIEW_PASS'
@@ -381,12 +402,17 @@ function Receive-SignedResult{
      Remove-Item -LiteralPath $handoffPath -Force -ErrorAction SilentlyContinue
    }
  }else{
+   $script:signedStage='FILE_LAUNCH'
    Start-Atlas
+   $script:signedStage='FILE_PREVIEW'
    Open-SignedFile $archive
  }
+ $script:signedStage='HISTORICAL_PREVIEW'
  Await-SignedText 'План изменился с момента выдачи поручения.'
- Click-UI 'Подтвердить получение'
+ $script:signedStage='CONFIRM'
+ Click-UI 'Подтвердить получение' $false $true
  Await-SignedText 'Выбранный подписанный Result сохранён в Atlas'
+ $script:signedStage='NATIVE_READBACK'
  $saved=Owner-Snapshot
  $entry=Read-SignedDecision $saved $sha
  if($null -eq $entry -or $saved.head.generation -ceq $before.head.generation -or
@@ -422,20 +448,25 @@ function Receive-SignedResult{
  }
  # Receipt navigation must expose the exact existing Plan / Fact card.
  # The preview dialog was already closed by the confirmed native readback.
+ $script:signedStage='PLAN_FACT'
  Await-SignedText 'Полученные результаты работ'
  Await-SignedText ($firstWork+' · Result '+[string]$entry.row.resultId)
  Await-SignedText $env:ATLAS_U05_SIGNED_RESULT_SUMMARY
  $generation=[string]$saved.head.generation
  $decisionId=[string]$entry.decision.id
+ $script:signedStage='COLD_LAUNCH'
  Close-Atlas
  Start-Atlas
+ $script:signedStage='COLD_PREVIEW'
  Open-SignedFile $archive
  Await-SignedText 'Этот Result уже сохранён в Atlas'
- Click-UI 'Проверить квитанцию'
+ $script:signedStage='COLD_RECEIPT'
+ Click-UI 'Проверить квитанцию' $false $true
  Await-SignedText 'Выбранный подписанный Result сохранён в Atlas'
  Await-SignedText 'Полученные результаты работ'
  Await-SignedText ($firstWork+' · Result '+[string]$entry.row.resultId)
  Await-SignedText $env:ATLAS_U05_SIGNED_RESULT_SUMMARY
+ $script:signedStage='COLD_NATIVE_READBACK'
  $cold=Owner-Snapshot
  $observed=Read-SignedDecision $cold $sha
  if($null -eq $observed -or $cold.head.generation -cne $generation -or
@@ -517,6 +548,20 @@ try{
  }
 }catch{
  $script:primaryFailure=$true
+ if($script:signedStage){
+   # Only fixed stage and error-kind tokens leave the private log. The
+   # existing CI filter will never need to print a source path or Result text.
+   $failureKind=switch($_.Exception){
+     {$_ -is [System.Windows.Automation.ElementNotAvailableException]} {'UIA_STALE';break}
+     {$_ -is [System.Runtime.InteropServices.COMException]} {'UIA_COM';break}
+     {$_ -is [System.Management.Automation.MethodInvocationException]} {'INVOCATION';break}
+     {$_ -is [System.Management.Automation.ParameterBindingException]} {'PARAMETER';break}
+     {$_ -is [System.IO.IOException]} {'IO';break}
+     default {'OTHER'}
+   }
+   Write-Host ('ATLAS_U05_SIGNED_FAILURE_STAGE_'+$script:signedStage)
+   Write-Host ('ATLAS_U05_SIGNED_FAILURE_KIND_'+$failureKind)
+ }
  # Retain the actual product or UI failure if cleanup also encounters a
  # modal or a delayed close. The private log filter prints stable codes.
  Write-Host "U05_ATLAS_PRIMARY_FAILURE $($_.Exception.Message)"
