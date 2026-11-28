@@ -1,0 +1,8 @@
+{
+  "prepared_sha": "515d55802515c1f705a90ada89a67fb90201bf41",
+  "package": "rpds-py",
+  "version": "2026.5.1",
+  "source_sha256": "07b24fea40541e28570e5b795a4a38fbdcd12550c06bd0748005ecc8116ca256",
+  "python": "3.13",
+  "scope": "PUBLIC_DEPENDENCY_ONLY"
+}
