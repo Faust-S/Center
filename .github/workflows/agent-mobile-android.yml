@@ -1,4 +1,4 @@
-name: IWXA packaged original mobile Task qualification
+name: IWXA mobile original Goal WorkBoard Graph qualification
 on:
   push:
     branches: ['ci/once/agent-mobile-android/*']
@@ -7,7 +7,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: iwxa-mobile-task-dispatch-host
+  group: iwxa-mobile-original-work-graph-host
   cancel-in-progress: false
 jobs:
   qualify:
@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: '3eeccc229af27bb3db331d31ffe17cd47b849a33'
-      PRIVATE_TREE: '6fe7ac2696480bff7d1bd0b2d11e91a37f72f0f8'
+      PRIVATE_PIN: '18338d8fa24f89659fddb8a5d3fbb6a7fff1e090'
+      PRIVATE_TREE: '9dfc51dc9bf3349ac425655a5acb62ab80fb5f7f'
       T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
       T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:

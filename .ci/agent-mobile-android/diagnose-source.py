@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import shutil
 import xml.etree.ElementTree as ET
 
 def status(name,value):
@@ -35,6 +36,12 @@ def main():
         if run(["git","rev-parse","HEAD"]).stdout.decode().strip()!=pin or run(["git","rev-parse","HEAD^{tree}"]).stdout.decode().strip()!=tree:
             status("SOURCE_IDENTITY","FAIL");return 1
         status("SOURCE_IDENTITY","PASS")
+        source_manifest=json.loads((source/"mobile/product/original-work-graph-source.json").read_text())
+        rows=source_manifest["source_files"]
+        if (source_manifest["revision"]!="ab604275306f9a27df064107ee04ab35437d98c8" or len(rows)!=18 or
+                len({r["path"] for r in rows})!=18 or any(run(["git","rev-parse","HEAD:"+r["path"]]).stdout.decode().strip()!=r["blob"] for r in rows)):
+            status("ORIGINAL_M28_PORTABLE_SOURCE","FAIL");return 1
+        status("ORIGINAL_M28_PORTABLE_SOURCE","18/18")
         venv=root/"venv"
         p=run([sys.executable,"-m","venv",str(venv)],timeout=120)
         status("HOST_VENV","PASS" if p.returncode==0 else "FAIL")
@@ -66,7 +73,7 @@ def main():
         report=root/"mobile.xml"
         test=source/"mobile/qualification/python-core-product/test_original_task_integration.py"
         p=run([py,"-I","-m","pytest","-q","--noconftest","--import-mode=importlib",
-               "--rootdir="+str(root),"--junitxml="+str(report),str(test)],cwd=root,custom=isolated,timeout=180)
+               "--rootdir="+str(root),"--junitxml="+str(report),str(test),str(test.with_name("test_mobile_work_port.py"))],cwd=root,custom=isolated,timeout=240)
         if not report.is_file():
             status("MOBILE_TASK_ARCHIVE","REPORT_MISSING")
             return 1
@@ -84,6 +91,28 @@ def main():
             "test_action_candidates_are_not_authorized_by_inference",
             "test_direct_model_port_cannot_bypass_original_invocation_authority",
             "test_stale_scheduler_claim_cannot_invoke",
+            "test_schedule_is_exact_original_job","test_execute_selected_job_without_consuming_older_job",
+            "test_original_foreign_job_cannot_be_claimed","test_stale_job_revision_never_invokes",
+            "test_future_job_never_consumes_attempt","test_native_model_change_pauses_original_job",
+            "test_cold_result_and_human_review_are_original","test_review_cannot_substitute_another_jobs_task",
+            "test_input_rejects_model_text_injection_and_bad_schedule","test_recurring_job_preserves_first_result_and_next_occurrence",
+            "test_controls_use_original_scheduler_and_exact_revision",
+            "test_later_failed_occurrence_preserves_previous_result",
+            "test_review_exact_older_result_after_new_success",
+            "test_run_history_is_not_cross_job_authority",
+            "test_background_peek_is_read_only_and_selects_oldest_mobile_job",
+            "test_background_live_lease_defers_lane_without_claim",
+            "test_background_expired_lease_uses_original_recovery_and_occurrence",
+            "test_background_peek_revision_invalidated_by_pause",
+            "test_background_foreign_prompt_and_approved_action_never_selected",
+            "test_background_stop_before_claim_has_no_attempt_or_model_call",
+            "test_background_interrupted_model_retains_original_retry_budget",
+            "test_plan_requires_accepted_exact_result",
+            "test_plan_from_original_accepted_task_uses_original_goal_and_board",
+            "test_plan_cold_readback_and_lost_ack_are_idempotent",
+            "test_plan_rejects_foreign_run_and_unapproved_source",
+            "test_original_graph_portable_owner_cold_progress",
+            "test_original_graph_portable_owner_never_fakes_model_execution",
         }
         for case in failed:
             if case.get("name") in allowed:status("MOBILE_TASK_FAIL_TEST",case.get("name"))
@@ -97,50 +126,27 @@ def main():
                          "MOBILE_TASK_SOURCE_ROUTE_UNAVAILABLE","MOBILE_TASK_RESULT_CHANGED",
                          "MOBILE_TASK_ROUTE_UNAVAILABLE","MOBILE_TASK_MODEL_REQUIRED","automation_claim_mismatch"):
                 if code in raw:status("MOBILE_TASK_FAIL_CLASS",code)
-        mobile_ok=p.returncode==0 and len(cases)==9 and not failed and not skipped
+        mobile_ok=p.returncode==0 and len(cases)==36 and not failed and not skipped
         status("MOBILE_TASK_ARCHIVE","PASS" if mobile_ok else "FAIL")
         package=run([py,"mobile/qualification/test_original_python_qa.py"],timeout=180)
         package_ok=package.returncode==0
         status("ARCHIVE_REGRESSION","PASS" if package_ok else "FAIL")
-        suites=(
-            ("M23_DISPATCH",["tests/test_automation_task_dispatch.py"]),
-            ("ORIGINAL_SCHEDULER",["tests/test_durable_automation_retry_budget.py","tests/test_interactive_task_retry_claim.py"]),
-            ("ORIGINAL_TASK_WORK_AREA",["tests/cells/test_task_goal_board_automation_session_skill.py",
-                                        "-k","automation or scheduled_followup or task_lifecycle_uses_cell_writes"]),
-        )
-        passed=mobile_ok and package_ok
-        for name,args in suites:
-            report=root/(name+".xml")
-            p=run([py,"-m","pytest","-q","--junitxml="+str(report),*args],timeout=300)
-            if not report.is_file() or report.stat().st_size>16*1024*1024:
-                status(name,"REPORT_MISSING");passed=False;continue
-            cases=list(ET.parse(report).getroot().iter("testcase"))
-            failed=[(i,c) for i,c in enumerate(cases,1) if c.find("failure") is not None or c.find("error") is not None]
-            skipped=sum(c.find("skipped") is not None for c in cases)
-            status(name+"_TESTS",len(cases));status(name+"_FAILURES",len(failed));status(name+"_SKIPS",skipped)
-            for i,c in failed:
-                status(name+"_FAIL_INDEX",i)
-                # Report only test names from our own six explicitly authored tests.
-                test=c.get("name","")
-                if name=="M23_DISPATCH" and test in {
-                    "test_first_claim_creates_original_task_and_scheduler_receipt",
-                    "test_cold_claim_recovery_reads_original_result_without_model_replay",
-                    "test_awaiting_result_uses_original_retry_route_only",
-                    "test_changed_objective_refuses_recovery_before_any_model_call",
-                    "test_unlinked_existing_task_cannot_be_claimed_by_a_different_area",
-                    "test_stale_claim_cannot_enter_task_dispatch","test_created_task_is_not_an_automation_result"}:
-                    status(name+"_FAIL_TEST",test)
-                failure=c.find("failure")
-                if failure is None:failure=c.find("error")
-                raw=((failure.get("message") or "")+"\n"+(failure.text or "")) if failure is not None else ""
-                for code in ("AssertionError","ValueError","ValidationError","ImportError","ModuleNotFoundError","AttributeError",
-                             "automation_occurrence_task_binding_mismatch","automation_occurrence_work_area_changed",
-                             "automation_claim_mismatch","unknown_or_incomplete_skill","unknown_session_task"):
-                    if code in raw:status(name+"_FAIL_CLASS",code)
-            ok=p.returncode==0 and bool(cases) and not failed and not skipped and (name!="M23_DISPATCH" or len(cases)==7)
-            status(name,"PASS" if ok else "FAIL");passed=passed and ok
-        status("M23_HOST","PASS" if passed else "FAIL")
-        return 0 if passed else 1
+        suites=("tests/test_fc6_graph_runtime_m1.py","tests/test_fc6_graph_execution_m2.py",
+                "tests/test_fc6_graph_safe_executor.py","tests/test_graph_orchestrator_state_transaction.py",
+                "tests/test_work_board_state_transaction.py","tests/cells/test_task_goal_board_automation_session_skill.py")
+        report=root/"portable.xml"
+        p=run([py,"-m","pytest","-q","--junitxml="+str(report),*suites],timeout=300)
+        cases=list(ET.parse(report).getroot().iter("testcase")) if report.is_file() else []
+        failures=sum(c.find("failure") is not None or c.find("error") is not None for c in cases)
+        skipped=sum(c.find("skipped") is not None for c in cases)
+        graph_ok=p.returncode==0 and bool(cases) and not failures and not skipped
+        status("ORIGINAL_GRAPH_BOARD_REGRESSION_TESTS",len(cases))
+        status("ORIGINAL_GRAPH_BOARD_REGRESSION_FAILURES",failures)
+        status("ORIGINAL_GRAPH_BOARD_REGRESSION_SKIPS",skipped)
+        status("ORIGINAL_GRAPH_BOARD_REGRESSION","PASS" if graph_ok else "FAIL")
+        ok=mobile_ok and package_ok and graph_ok
+        status("M26_HOST","PASS" if ok else "FAIL")
+        return 0 if ok else 1
 if __name__=="__main__":
     try:code=main()
     except (OSError,ValueError,KeyError,subprocess.TimeoutExpired,ET.ParseError):
