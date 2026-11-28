@@ -1,114 +1,51 @@
-"""Pinned private source, independent native installation and upgrade qualification."""
+"""Execute one isolated source-level model experiment; no installer or release."""
 import os
 from pathlib import Path
 import sys
 import tempfile
-import subprocess
-import shutil
 
-from admit import CANDIDATE_PIN, CANDIDATE_TREE, BASELINE_PIN, BASELINE_TREE, WITNESS_PIN, WITNESS_TREE, GROUPS, SCOPE
-from bundle_evidence import summarize
+from admit import CANDIDATE_PIN, CANDIDATE_TREE, SCOPE, GROUPS
+from model_probe import RESULTS
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'agent065-modeling'))
 from qualify import Qualification, cleanup_private, status
-from release_gate import ocr_gate
-from installed_gate import installed_gate
-
-# Only fixed public result labels and existing harness diagnostics leave the runner.
-def core(q):
-    # Reuse the full Core and native-modeling regression of the accepted baseline.
-    q.run('B066_PYTHON_COMPILE', [sys.executable, '-m', 'compileall', '-q', 'runtime', 'adapters', 'tools', 'tests'], timeout=300)
-    return q.python(delegate_ocr=True) and all(q.results.values())
-
-
-def bundle(q):
-    code, _ = q.run('B066_UPSTREAM_ARCHIVES',
-                    [sys.executable, '-B', 'tools/stage_browser_mcp.py', '--cache', str(q.root/'archive-cache')],
-                    timeout=360)
-    if code:
-        return False
-    code, out = q.run('B066_ORIGINAL_BUNDLE',
-                      [sys.executable, '-B', 'tools/verify_browser_mcp_bundle.py',
-                       '--cache', str(q.root/'archive-cache'), '--output', str(q.root/'browser-probe')],
-                      timeout=300, report=False)
-    ok, summary = summarize(code, out)
-    for key, value in summary.items():
-        status(key, value)
-    q.results['B066_ORIGINAL_BUNDLE'] = ok
-    status('B066_ORIGINAL_BUNDLE', 'PASS' if ok else 'FAIL')
-    return all(q.results.values())
-
-
-def browser_witness_preflight(q):
-    if q.run('B066_PREVIEW_WITNESS_SYNTAX', ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
-        "$tokens=$null;$errors=$null;$null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) 'tools/qualify_setup_core_browser_gui.ps1'),[ref]$tokens,[ref]$errors);if($errors.Count -ne 0){exit 1}"], timeout=60)[0]:
-        return False
-    python = q.venv('browserwitnessqa', ['requirements-ci.txt'])
-    if python is None:
-        q.block('B066_BROWSER_WITNESS_TEST')
-        return False
-    if not q.pytest('B066_BROWSER_WITNESS_TEST', python,
-                    ['tests/test_setup_core_browser_installed.py','tests/test_setup_core_browser_actions.py',
-                     'tests/test_setup_core_browser_files.py','tests/test_setup_core_browser_development.py',
-                     'tests/test_browser_model_proposals.py','tests/test_browser_snapshot_targets.py',
-                     'tests/test_browser_exact_user_values.py',
-                     'tests/test_browser_document_actions.py','tests/test_agent066_browser_core_integration.py',
-                     'tests/test_shared_browser_mcp.py','tests/test_browser_mcp_host.py'], timeout=600):
-        return False
-    node, npm = shutil.which('node'), shutil.which('npm.cmd')
-    if not node or not npm:
-        q.block('B066_MATERIALS_NODE_TOOLCHAIN')
-        return False
-    npmcli = Path(npm).parent/'node_modules'/'npm'/'bin'/'npm-cli.js'
-    if not npmcli.is_file():
-        q.block('B066_MATERIALS_NODE_TOOLCHAIN')
-        return False
-    desktop = q.src/'desktop'
-    if q.run('B066_MATERIALS_DEPENDENCIES',[node,npmcli,'ci','--ignore-scripts','--no-audit','--no-fund'],
-             cwd=desktop,timeout=900)[0]:
-        return False
-    return q.run('B066_MATERIALS_RACE',[node,'--test','tests/files-startup-race.test.mjs','tests/files-navigation.test.mjs'],
-                 cwd=desktop,timeout=120)[0] == 0
 
 
 def main():
     token = os.environ.pop('IWXA_TEMP_READ_TOKEN', '')
-    pin = os.environ.get('PRIVATE_PIN', '')
-    tree = os.environ.get('PRIVATE_TREE', '')
-    group = os.environ.get('QUALIFICATION_GROUP', '')
     root = None
-    passed = False
+    complete = False
     try:
-        if ((pin, tree) != (CANDIDATE_PIN, CANDIDATE_TREE) or group != 'upgrade' or group not in GROUPS
-                or (os.environ.get('BASELINE_PIN'), os.environ.get('BASELINE_TREE')) != (BASELINE_PIN, BASELINE_TREE)
-                or (os.environ.get('WITNESS_PIN'), os.environ.get('WITNESS_TREE')) != (WITNESS_PIN, WITNESS_TREE)
-                or (pin, tree) != (WITNESS_PIN, WITNESS_TREE)
-                or SCOPE != 'B066_REMAINING_NATIVE_DEVELOPMENT'):
-            status('B066_REQUEST', 'FAIL')
+        if (SCOPE != 'B066_MODEL_CONTRACT_EXPERIMENT' or GROUPS != ('model',)
+                or os.environ.get('QUALIFICATION_GROUP') != 'model'
+                or (os.environ.get('PRIVATE_PIN'), os.environ.get('PRIVATE_TREE')) != (CANDIDATE_PIN, CANDIDATE_TREE)):
             return 1
-        root = Path(tempfile.mkdtemp(prefix='iwxa-agent065-agent066-', dir=os.environ['RUNNER_TEMP']))
+        root = Path(tempfile.mkdtemp(prefix='agent066-model-', dir=os.environ['RUNNER_TEMP']))
         q = Qualification(root)
-        if q.checkout(token, pin, tree):
+        if q.checkout(token, CANDIDATE_PIN, CANDIDATE_TREE):
             token = ''
-            # In development, build and test one exact checkout. No separate
-            # witness revision, frozen baseline rebuild or inherited binary verdict.
-            if browser_witness_preflight(q) and all(q.results.values()):
-                passed = installed_gate(q, pin, tree, None, BASELINE_PIN, BASELINE_TREE,
-                                        upgrade=True, witness=q)
-            else:
-                q.block('UPGRADE_WITNESS_PREFLIGHT')
-    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
-        status('B066_INTERNAL', 'FAIL')
+            code, data = q.run('B066_MODEL_PROBE', [sys.executable, Path(__file__).with_name('model_probe.py'), q.src, root/'experiment'],
+                               report=False, timeout=1800)
+            allowed = {'MODEL_CATALOG=PASS', 'MODEL_REAL_QWEN=READY', 'MODEL_DIAGNOSTIC_COMPLETE=PASS', 'MODEL_DIAGNOSTIC_COMPLETE=FAIL'}
+            allowed.update('MODEL_STAGE='+s for s in ('ORIGINAL_MCP_CATALOG','PINNED_MODEL','CURRENT','COMPACT'))
+            allowed.update('MODEL_'+name+'='+result for name in ('CURRENT','COMPACT') for result in RESULTS)
+            rows = [line for line in data.splitlines() if line in allowed]
+            for line in rows:
+                print(line, flush=True)
+            complete = (code == 0 and rows[-1:] == ['MODEL_DIAGNOSTIC_COMPLETE=PASS']
+                        and rows.count('MODEL_CATALOG=PASS') == 1 and rows.count('MODEL_REAL_QWEN=READY') == 1
+                        and all(sum(line.startswith('MODEL_'+name+'=') for line in rows)==1 for name in ('CURRENT','COMPACT')))
+    except Exception:
+        status('MODEL_INTERNAL', 'FAIL')
     finally:
         token = ''
         if root is not None:
             clean = cleanup_private(root)
-            status('PRIVATE_CLEANUP', 'PASS' if clean else 'FAIL')
-            passed = passed and clean
-    status('REMAINING_NATIVE_DEVELOPMENT', 'PASS' if passed else 'FAIL')
-    status('INSTALLED_BROWSER', 'NOT_RUN')
-    status('PRODUCT_ACCEPTED', 'false')
-    status('GROUP_QUALIFICATION', 'NOT_RUN')
-    return 0 if passed else 1
+            status('PRIVATE_CLEANUP','PASS' if clean else 'FAIL')
+            complete = complete and clean
+    status('SOURCE_MODEL_EXPERIMENT','COMPLETE' if complete else 'FAIL')
+    status('INSTALLED_BROWSER','NOT_RUN')
+    status('PRODUCT_ACCEPTED','false')
+    return 0 if complete else 1
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-name: Agent 0.6.6 remaining routes on one exact candidate
+name: Agent 0.6.6 real Qwen and original MCP contract experiment
 on:
   push:
     branches:
@@ -13,18 +13,16 @@ concurrency:
   cancel-in-progress: false
 jobs:
   qualify:
-    name: development / files and AI actions
+    name: development / real Qwen contract without installer
     if: ${{ github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false }}
     runs-on: windows-2022
-    timeout-minutes: 360
+    timeout-minutes: 45
     env:
       PRIVATE_PIN: '3a1e94112ad4edceb90dc6e60c5a1ab9149c691d'
       PRIVATE_TREE: '35b0fddc63f38b10d95ec77428af7904a348d99c'
       BASELINE_PIN: '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
       BASELINE_TREE: '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
-      WITNESS_PIN: '3a1e94112ad4edceb90dc6e60c5a1ab9149c691d'
-      WITNESS_TREE: '35b0fddc63f38b10d95ec77428af7904a348d99c'
-      QUALIFICATION_GROUP: upgrade
+      QUALIFICATION_GROUP: model
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       CI: 'true'
@@ -37,20 +35,14 @@ jobs:
           persist-credentials: false
       - name: Admit exact one-time request before private access
         shell: bash
-        run: |
-          python .ci/agent066-browser-source/test_reuse_evidence.py Evidence.test_one_shot_request_admission
-          python .ci/agent066-browser-source/test_installed_evidence.py
-          python .ci/agent066-browser-source/admit.py
+        run: python .ci/agent066-browser-source/admit.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - name: Build candidate once and test remaining installed browser routes
+      - name: Install source experiment dependencies
+        shell: bash
+        run: python -m pip install --disable-pip-version-check jsonschema==4.26.0 pytest==9.0.2
+      - name: Compare current and compact instructions with real Qwen
         shell: bash
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
