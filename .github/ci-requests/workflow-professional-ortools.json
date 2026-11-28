@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "c7b9cd19aa1a4e935c6d5dae02ecfdbb306d446a",
+  "profile": "workspace-saved-alternative-panel",
+  "pins": {
+    "workspaceKnowledge": "bc4b6b2e5dba6de350d9fd07623736d9d6ab66a9"
+  },
+  "reason": "Qualify W06.10 existing Workflow saved alternative opening and exact target recovery panel"
+}
