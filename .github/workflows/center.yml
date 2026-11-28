@@ -591,6 +591,10 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
+          $tokens=$null;$errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'tests/installed-atlas-u05-seed.ps1').Path,[ref]$tokens,[ref]$errors)
+          if($errors.Count){throw 'ATLAS_PUBLIC_GUI_DRIVER_PARSE_FAILED'}
           & node --test vendor/atlas/tests/atlas09-signed-file-recipient.test.mjs vendor/atlas/tests/atlas09-t3-confirmed-readback.test.mjs vendor/atlas/tests/atlas-organization-plan-projection.test.mjs
           if($LASTEXITCODE -ne 0){throw 'ATLAS_PUBLIC_RESULT_REGRESSION_FAILED'}
           # Center's original archive writer imports the existing fflate

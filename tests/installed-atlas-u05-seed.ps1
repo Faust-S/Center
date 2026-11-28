@@ -13,6 +13,8 @@ public static class AtlasU05NativeWin {
  [DllImport("user32.dll",SetLastError=true)]
  public static extern bool PostMessage(IntPtr hwnd,uint msg,IntPtr w,IntPtr l);
  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hwnd,int id);
+ [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
 }
 '@
 $exe=$env:ATLAS_INSTALLED_EXE
@@ -278,6 +280,12 @@ function Open-AtlasFileMenu{
  }
  throw 'ATLAS_U05_SIGNED_FILE_MENU_NOT_FOUND'
 }
+function Assert-SignedPickerForeground([IntPtr]$handle){
+ if(![AtlasU05NativeWin]::IsWindow($handle) -or
+    [AtlasU05NativeWin]::GetForegroundWindow() -ne $handle){
+   throw 'ATLAS_U05_SIGNED_FILE_DIALOG_FOREGROUND_LOST'
+ }
+}
 function Open-SignedFile([string]$archive){
  Open-AtlasFileMenu
  try{$control=Find-UI 'Принять подписанный Result .iwxa' 'Button' $false $true $true}
@@ -298,30 +306,89 @@ function Open-SignedFile([string]$archive){
    Start-Sleep -Milliseconds 150
  }
  if($null -eq $dialog){throw 'ATLAS_U05_SIGNED_FILE_DIALOG_NOT_OPEN'}
- $field=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-   [System.Windows.Automation.PropertyCondition]::new(
-     [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1148'))
+ $dialogHandle=$handle
  $set=$false
- if($null -ne $field){
+ $idCondition=[System.Windows.Automation.PropertyCondition]::new(
+   [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1148')
+ $editCondition=[System.Windows.Automation.PropertyCondition]::new(
+   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+   [System.Windows.Automation.ControlType]::Edit)
+ # A WebView2 file picker may expose its filename edit only after the shell
+ # finishes initializing, or not expose automation ID 1148 at all.
+ for($attempt=0;$attempt -lt 25 -and !$set;$attempt++){
+   Assert-SignedPickerForeground $dialogHandle
    try{
-     if($field.Current.ControlType -eq [System.Windows.Automation.ControlType]::ComboBox){
-       $field=$field.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-         [System.Windows.Automation.PropertyCondition]::new(
-           [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-           [System.Windows.Automation.ControlType]::Edit))
+     $dialog=[System.Windows.Automation.AutomationElement]::FromHandle($dialogHandle)
+     $container=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$idCondition)
+     if(!$container){
+       $nativeField=[AtlasU05NativeWin]::GetDlgItem($dialogHandle,1148)
+       if($nativeField -ne [IntPtr]::Zero){
+         $container=[System.Windows.Automation.AutomationElement]::FromHandle($nativeField)
+       }
      }
-     $value=$field.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-     $value.SetValue($archive)
-     $set=([string]$value.Current.Value -ceq $archive)
+     if($container){
+       $fields=if($container.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit){
+         @($container)
+       }else{
+         @($container.FindAll([System.Windows.Automation.TreeScope]::Descendants,$editCondition))
+       }
+       if(@($fields).Count -eq 1){
+         $field=@($fields)[0]
+         $pattern=$null
+         if($field.Current.IsEnabled -and
+            $field.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern) -and
+            !$pattern.Current.IsReadOnly){
+           $field.SetFocus()
+           Assert-SignedPickerForeground $dialogHandle
+           $pattern.SetValue($archive)
+           $set=([string]$pattern.Current.Value -ceq $archive)
+         }
+       }
+     }
    }catch{}
+   if(!$set){Start-Sleep -Milliseconds 200}
  }
  if(!$set){
-   if($archive -match '[+^%~{}()]'){throw 'ATLAS_U05_SIGNED_FILE_PATH_UNSUPPORTED'}
-   [System.Windows.Forms.SendKeys]::SendWait('%n')
-   Start-Sleep -Milliseconds 150
-   [System.Windows.Forms.SendKeys]::SendWait('^a')
-   [System.Windows.Forms.SendKeys]::SendWait($archive)
+   # Reuse the literal clipboard entry and exact readback used by the
+   # installed Publisher/Center qualification. The signed archive path is
+   # data, not a SendKeys expression (including + ^ % ~ { } ( )).
+   if([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA'){
+     throw 'ATLAS_U05_SIGNED_FILE_STA_REQUIRED'
+   }
+   $previousClipboard=[System.Windows.Forms.Clipboard]::GetDataObject()
+   try{
+     for($attempt=0;$attempt -lt 4 -and !$set;$attempt++){
+       Assert-SignedPickerForeground $dialogHandle
+       [System.Windows.Forms.SendKeys]::SendWait('%n')
+       Start-Sleep -Milliseconds 150
+       Assert-SignedPickerForeground $dialogHandle
+       [System.Windows.Forms.Clipboard]::SetText($archive)
+       [System.Windows.Forms.SendKeys]::SendWait('^a')
+       [System.Windows.Forms.SendKeys]::SendWait('^v')
+       Start-Sleep -Milliseconds 250
+       Assert-SignedPickerForeground $dialogHandle
+       [System.Windows.Forms.Clipboard]::Clear()
+       [System.Windows.Forms.SendKeys]::SendWait('^a')
+       [System.Windows.Forms.SendKeys]::SendWait('^c')
+       for($clipAttempt=0;$clipAttempt -lt 8;$clipAttempt++){
+         Start-Sleep -Milliseconds 100
+         Assert-SignedPickerForeground $dialogHandle
+         if([System.Windows.Forms.Clipboard]::ContainsText()){
+           $set=([System.Windows.Forms.Clipboard]::GetText() -ceq $archive)
+           break
+         }
+       }
+     }
+   }finally{
+     if($null -ne $previousClipboard){
+       [System.Windows.Forms.Clipboard]::SetDataObject($previousClipboard,$true)
+     }else{
+       [System.Windows.Forms.Clipboard]::Clear()
+     }
+   }
  }
+ if(!$set){throw 'ATLAS_U05_SIGNED_FILE_EXACT_PATH_READBACK_FAILED'}
+ Assert-SignedPickerForeground $dialogHandle
  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
  # Wait for the real signed-file review, not just disappearance of the dialog.
  Assert-SignedPreview
@@ -452,6 +519,7 @@ function Receive-SignedResult{
  Await-SignedText 'Полученные результаты работ'
  Await-SignedText ($firstWork+' · Result '+[string]$entry.row.resultId)
  Await-SignedText $env:ATLAS_U05_SIGNED_RESULT_SUMMARY
+ Write-Host 'ATLAS_INSTALLED_SIGNED_FIRST_RECEIPT_PLAN_FACT_PASS'
  $generation=[string]$saved.head.generation
  $decisionId=[string]$entry.decision.id
  $script:signedStage='COLD_LAUNCH'
