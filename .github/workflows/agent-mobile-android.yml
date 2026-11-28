@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
-      PRIVATE_PIN: '0ac929b244221f879f4fe32466f5443b75572aad'
-      PRIVATE_TREE: '76292c0c5e14de46df5854c9b21d63e5945ca1ef'
+      PRIVATE_PIN: '9d52a1bbf1b4b19c6a8a8642dd57c5feb1dcf1cf'
+      PRIVATE_TREE: '180b762e65e31b79ec6f95d33ddb4f8865600dbf'
       T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
       T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:
@@ -116,9 +116,9 @@ jobs:
                           status("QA_NATIVE_TTS_PREFLIGHT","FAIL");return 1
                       status("QA_NATIVE_TTS_PREFLIGHT","PASS")
                       audio_diagnostics=run(["python3","mobile/qualification/test_diagnostics.py"],source,timeout=60)
-                      if audio_diagnostics.returncode or not re.search(rb"(?m)^Ran 22 tests? in [0-9.]+s\s*$",audio_diagnostics.stdout) or not re.search(rb"(?m)^OK\s*$",audio_diagnostics.stdout):
+                      if audio_diagnostics.returncode or not re.search(rb"(?m)^Ran 24 tests? in [0-9.]+s\s*$",audio_diagnostics.stdout) or not re.search(rb"(?m)^OK\s*$",audio_diagnostics.stdout):
                           status("EXCHANGE_DIAGNOSTICS","FAIL");return 1
-                      status("EXCHANGE_DIAGNOSTICS","PASS");status("AUDIO_DIAGNOSTICS_POLICY","22/22")
+                      status("EXCHANGE_DIAGNOSTICS","PASS");status("AUDIO_DIAGNOSTICS_POLICY","24/24")
                       native=json.loads((mobile/"native/llama-source.json").read_text())
                       if native.get("revision")!="5220a2d4040aa75f52678ebf52d77a0fba85de9f":
                           status("LLAMA_PIN","FAIL");return 1
@@ -443,7 +443,7 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"887","pass":"887","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"894","pass":"894","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
