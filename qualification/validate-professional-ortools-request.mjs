@@ -23,6 +23,6 @@ assert.deepEqual(Object.keys(request).sort(),['pins','prepared','profile','reaso
 assert.equal(request.workflow,workflow);
 assert.equal(request.prepared,before);
 assert.equal(request.profile,'original-program-center-complete-managed-chain');
-assert.deepEqual(request.pins,{professionalAgent:'f7f0a6e95cc551b89557f256af40ea69e222e7f9'});
-assert.equal(request.reason,'Qualify original Programs Center installation through public commands, managed discovery without explicit paths, full QGIS Valhalla OR-Tools Task chain and controlled native long path refusal');
+assert.deepEqual(request.pins,{professionalAgent:'57e3c09e4e16aa7bdebd2b78b239328caf0895b0'});
+assert.equal(request.reason,'Qualify corrected shared install surface catalog, all six public command routes and full original QGIS Valhalla OR-Tools managed chain');
 console.log('EXACT_ONE_SHOT_WORKFLOW_REQUEST_PASS');

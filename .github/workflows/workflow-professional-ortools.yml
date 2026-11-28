@@ -73,23 +73,22 @@ jobs:
         id: professional_source
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: f7f0a6e95cc551b89557f256af40ea69e222e7f9
+          ref: 57e3c09e4e16aa7bdebd2b78b239328caf0895b0
           path: professional-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - name: Exact qualification dependencies
         run: |
-          test "$(git -C professional-agent rev-parse HEAD)" = "f7f0a6e95cc551b89557f256af40ea69e222e7f9"
+          test "$(git -C professional-agent rev-parse HEAD)" = "57e3c09e4e16aa7bdebd2b78b239328caf0895b0"
           python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
       - name: Managed install contracts and discovery
         working-directory: professional-agent
         run: |
           rc=0
           python -m pytest -q tests/test_agent067_professional_install.py tests/test_agent067_modeling_executable.py -k 'not native_windows' --junitxml="$RUNNER_TEMP/professional-contract.xml" > "$RUNNER_TEMP/professional-contract-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-contract.xml" MANAGED_CONTRACT 24 strict || exit 1
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-contract.xml" MANAGED_CONTRACT 31 strict || exit 1
           test "$rc" = 0
       - name: Actual original Programs Center QGIS Valhalla OR-Tools workflow and cold readback
-        if: always() && steps.professional_source.outcome == 'success'
         working-directory: professional-agent
         run: |
           rc=0
