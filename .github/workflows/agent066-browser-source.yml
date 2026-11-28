@@ -1,4 +1,4 @@
-name: Agent 0.6.6 full native browser and frozen baseline upgrade
+name: Agent 0.6.6 remaining native upgrade and preserved owner delivery
 on:
   push:
     branches:
@@ -7,37 +7,24 @@ on:
       - '.github/ci-requests/agent066-browser-source.json'
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: iwxa-agent066-browser-qualification
   cancel-in-progress: false
 jobs:
   qualify:
+    name: qualify / upgrade
     if: ${{ github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: core
-            os: windows-2022
-          - group: ocr
-            os: ubuntu-24.04
-          - group: desktop-source
-            os: windows-2022
-          - group: bundle
-            os: windows-2022
-          - group: desktop
-            os: windows-2022
-          - group: upgrade
-            os: windows-2022
-    name: qualify / ${{ matrix.group }}
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-2022
     timeout-minutes: 360
     env:
       PRIVATE_PIN: 'fdc0a706f822fcfc624f12b23094e80cfa186c83'
       PRIVATE_TREE: '50bfd8fe63f2f397fd1d8d587cb34c1fc07fe035'
       BASELINE_PIN: '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
       BASELINE_TREE: '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
-      QUALIFICATION_GROUP: ${{ matrix.group }}
+      WITNESS_PIN: 'f4a2a85f59702151172404df5525d5b9bafe9eaf'
+      WITNESS_TREE: 'b60b76b3508c51bad0965876f9ab725fb259b11a'
+      QUALIFICATION_GROUP: upgrade
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       CI: 'true'
@@ -51,40 +38,27 @@ jobs:
       - name: Admit exact one-time request before private access
         shell: bash
         run: |
-          python .ci/agent066-browser-source/test_bundle_evidence.py
+          python .ci/agent066-browser-source/test_reuse_evidence.py
           python .ci/agent066-browser-source/test_installed_evidence.py
           python .ci/agent066-browser-source/admit.py
+      - name: Verify five previous groups and exact encrypted candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .ci/agent066-browser-source/reuse_evidence.py prior
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
-        if: ${{ matrix.group == 'desktop-source' || matrix.group == 'desktop' || matrix.group == 'upgrade' }}
         with:
           node-version: '22.16.0'
       - uses: actions/setup-dotnet@v4
-        if: ${{ matrix.group == 'desktop' || matrix.group == 'upgrade' }}
         with:
           dotnet-version: '8.0.x'
-      - name: Prepare existing owner encryption
-        if: ${{ matrix.group == 'desktop' }}
-        shell: bash
-        run: |
-          python -m pip install --disable-pip-version-check --no-cache-dir cryptography==46.0.4
-          python .ci/agent066-browser-source/test_delivery.py
-      - name: Grouped verification on temporary private checkout
+      - name: Qualify original release source with separately pinned witness
         shell: bash
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: python .ci/agent066-browser-source/run.py
-      - name: Preserve encrypted clean-installed candidate
-        if: ${{ matrix.group == 'desktop' && success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: IWXA-Agent-0.6.6-clean-candidate-fdc0a706-encrypted
-          path: ${{ runner.temp }}/iwxa-agent066-delivery-cipher/
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
   delivery:
     name: delivery / qualified owner package
     needs: qualify
@@ -96,17 +70,22 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Prepare envelope verification
+      - name: Recheck exact prior results and artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .ci/agent066-browser-source/reuse_evidence.py prior
+      - name: Prepare existing envelope verification
         run: python -m pip install --disable-pip-version-check --no-cache-dir cryptography==46.0.4
       - uses: actions/download-artifact@v4
         with:
-          name: IWXA-Agent-0.6.6-clean-candidate-fdc0a706-encrypted
+          artifact-ids: '15259880049'
+          run-id: '46132480100'
+          repository: Faust-S/Center
+          github-token: ${{ github.token }}
+          merge-multiple: true
           path: owner-delivery
-      - name: Verify the same encrypted installer after all six groups
-        run: python .ci/agent066-browser-source/delivery.py owner-delivery
+      - name: Verify exact original clean-installed package after all groups
+        run: python .ci/agent066-browser-source/reuse_evidence.py delivery owner-delivery
       - name: Publish qualified encrypted owner package
         uses: actions/upload-artifact@v4
         with:

@@ -3,6 +3,11 @@
   "tree": "50bfd8fe63f2f397fd1d8d587cb34c1fc07fe035",
   "baseline": "68128b4c9a2c7140ec3503ff0f775e5bcb50743e",
   "baseline_tree": "73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2",
-  "scope": "B066_FULL_NATIVE_QUALIFICATION",
-  "installed_gui": "REQUIRED"
+  "scope": "B066_WITNESS_ONLY_UPGRADE",
+  "installed_gui": "REQUIRED",
+  "witness": "f4a2a85f59702151172404df5525d5b9bafe9eaf",
+  "witness_tree": "b60b76b3508c51bad0965876f9ab725fb259b11a",
+  "prior_run": 46132480100,
+  "prior_attempt": 1,
+  "prior_artifact": 15259880049
 }

@@ -9,8 +9,13 @@ CANDIDATE_PIN = 'fdc0a706f822fcfc624f12b23094e80cfa186c83'
 CANDIDATE_TREE = '50bfd8fe63f2f397fd1d8d587cb34c1fc07fe035'
 BASELINE_PIN = '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
 BASELINE_TREE = '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
-SCOPE = 'B066_FULL_NATIVE_QUALIFICATION'
-GROUPS = ('core', 'ocr', 'desktop-source', 'bundle', 'desktop', 'upgrade')
+WITNESS_PIN = 'f4a2a85f59702151172404df5525d5b9bafe9eaf'
+WITNESS_TREE = 'b60b76b3508c51bad0965876f9ab725fb259b11a'
+PRIOR_RUN = 46132480100
+PRIOR_ATTEMPT = 1
+PRIOR_ARTIFACT = 15259880049
+SCOPE = 'B066_WITNESS_ONLY_UPGRADE'
+GROUPS = ('upgrade',)
 
 WORKFLOW = 'agent066-browser-source'
 PREFIX = 'refs/heads/ci/once/' + WORKFLOW + '/'
@@ -40,6 +45,14 @@ def read_json(path):
     return json.loads(p.read_text(encoding='utf-8'), object_pairs_hook=unique)
 
 
+def expected_request():
+    return {'candidate':CANDIDATE_PIN,'tree':CANDIDATE_TREE,
+            'baseline':BASELINE_PIN,'baseline_tree':BASELINE_TREE,
+            'witness':WITNESS_PIN,'witness_tree':WITNESS_TREE,
+            'prior_run':PRIOR_RUN,'prior_attempt':PRIOR_ATTEMPT,'prior_artifact':PRIOR_ARTIFACT,
+            'scope':SCOPE,'installed_gui':'REQUIRED'}
+
+
 def admit(env, event):
     require(env.get('GITHUB_REPOSITORY') == 'Faust-S/Center')
     require(env.get('GITHUB_EVENT_NAME') == 'push')
@@ -53,12 +66,11 @@ def admit(env, event):
     require(git('diff-tree','--no-commit-id','--name-status','-r',parent,head) == 'A\t' + REQUEST)
     require(git('ls-tree',head,'--',REQUEST).split(' ',1)[0] == '100644')
     expected = read_json(PREPARED)
-    require(expected == {'candidate':CANDIDATE_PIN,'tree':CANDIDATE_TREE,
-                         'baseline':BASELINE_PIN,'baseline_tree':BASELINE_TREE,
-                         'scope':SCOPE,'installed_gui':'REQUIRED'})
+    require(expected == expected_request())
     require(expected['candidate'] == env.get('PRIVATE_PIN') and expected['tree'] == env.get('PRIVATE_TREE'))
     require(expected['baseline'] == env.get('BASELINE_PIN') and expected['baseline_tree'] == env.get('BASELINE_TREE'))
-    require(all(SHA.fullmatch(expected[k]) for k in ('candidate','tree','baseline','baseline_tree')))
+    require(expected['witness'] == env.get('WITNESS_PIN') and expected['witness_tree'] == env.get('WITNESS_TREE'))
+    require(all(SHA.fullmatch(expected[k]) for k in ('candidate','tree','baseline','baseline_tree','witness','witness_tree')))
     require(read_json(REQUEST) == {**expected,'workflow':WORKFLOW,'prepared_sha':parent})
     require(env.get('QUALIFICATION_GROUP') in GROUPS)
     return head

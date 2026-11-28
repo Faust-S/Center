@@ -75,9 +75,12 @@ def upgrade_diagnostics(data, *, label_prefix=''):
         print(label_prefix+name+'='+value,flush=True)
 
 
-def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False):
+def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False, witness=None):
     if (os.name!='nt' or upgrade != (baseline is not None)
-            or os.environ.get('QUALIFICATION_GROUP')!=('upgrade' if upgrade else 'desktop')):
+            or os.environ.get('QUALIFICATION_GROUP')!=('upgrade' if upgrade else 'desktop')
+            or (SCOPE == 'B066_WITNESS_ONLY_UPGRADE') != (witness is not None)
+            or (witness is not None and (not upgrade or witness is q or witness is baseline
+                                         or not witness.results or not all(witness.results.values())))):
         q.block('SETUP_ADMISSION'); return False
     if not verdict(q,'COMMITTED_NATIVE_LOCK_BEFORE',LOCK in q.files and lock_ok(q.src/LOCK,NEW_LOCK,'0.6.6')):
         return False
@@ -125,10 +128,13 @@ def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False):
             old_out=build_frozen_baseline(q,baseline,owner,source=old_pin,tree=old_tree,version='0.6.5')
             ready=verdict(q,'UPGRADE_BASELINE_BUILT',old_out is not None and build_identity(old_out,old_pin,old_tree,'0.6.5'))
         if ready:
-            if SCOPE == 'B066_UPGRADE_DIAGNOSTIC':
+            if SCOPE == 'B066_UPGRADE_DIAGNOSTIC' or witness is not None:
+                # Continue diagnostics after a known browser-route failure, but
+                # the original witness still rejects and cannot confirm upgrade.
                 env['IWXA_AGENT066_DIAGNOSTIC_CONTINUE']='1'
             root=q.root/'real-upgrade'
-            code,data=q.run('UPGRADE_065_TO_066',[sys.executable,q.src/'tools/qualify_setup_core_upgrade_065_to_066.py',
+            witness_src = witness.src if witness is not None else q.src
+            code,data=q.run('UPGRADE_065_TO_066',[sys.executable,witness_src/'tools/qualify_setup_core_upgrade_065_to_066.py',
                 '--old-setup',old_out/NAME,'--new-setup',out/NAME,
                 '--old-receipt',old_out/RECEIPT,'--new-receipt',out/RECEIPT,
                 '--qualification-root',root,'--new-source',pin,'--new-tree',tree],env=env,report=False,timeout=6000)
@@ -151,4 +157,5 @@ def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False):
             for name,value in witness_diagnostics(out).items():print(name+'='+value,flush=True)
     if not good:q.diagnostics(label,data)
     verdict(q,'COMMITTED_NATIVE_LOCK_AFTER',lock_ok(q.src/LOCK,NEW_LOCK,'0.6.6'))
-    return good and all(q.results.values()) and (baseline is None or all(baseline.results.values()))
+    return (good and all(q.results.values()) and (baseline is None or all(baseline.results.values()))
+            and (witness is None or all(witness.results.values())))

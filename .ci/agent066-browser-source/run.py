@@ -5,7 +5,8 @@ import sys
 import tempfile
 import subprocess
 
-from admit import CANDIDATE_PIN, CANDIDATE_TREE, BASELINE_PIN, BASELINE_TREE, GROUPS, SCOPE
+from admit import CANDIDATE_PIN, CANDIDATE_TREE, BASELINE_PIN, BASELINE_TREE, WITNESS_PIN, WITNESS_TREE, GROUPS, SCOPE
+from reuse_evidence import verify_witness_checkouts
 from bundle_evidence import summarize
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'agent065-modeling'))
 from qualify import Qualification, cleanup_private, status
@@ -62,43 +63,36 @@ def main():
     root = None
     passed = False
     try:
-        if ((pin, tree) != (CANDIDATE_PIN, CANDIDATE_TREE) or group not in GROUPS
-                or (os.environ.get('BASELINE_PIN'), os.environ.get('BASELINE_TREE')) != (BASELINE_PIN, BASELINE_TREE)):
+        if ((pin, tree) != (CANDIDATE_PIN, CANDIDATE_TREE) or group != 'upgrade' or group not in GROUPS
+                or (os.environ.get('BASELINE_PIN'), os.environ.get('BASELINE_TREE')) != (BASELINE_PIN, BASELINE_TREE)
+                or (os.environ.get('WITNESS_PIN'), os.environ.get('WITNESS_TREE')) != (WITNESS_PIN, WITNESS_TREE)):
             status('B066_REQUEST', 'FAIL')
             return 1
         root = Path(tempfile.mkdtemp(prefix='iwxa-agent065-agent066-', dir=os.environ['RUNNER_TEMP']))
         q = Qualification(root)
         if q.checkout(token, pin, tree):
-            baseline = None
-            baseline_ready = True
-            if group == 'upgrade':
-                old_root = root / 'baseline'
-                old_root.mkdir()
-                baseline = Qualification(old_root)
-                baseline_ready = baseline.checkout(token, BASELINE_PIN, BASELINE_TREE, status_prefix='BASELINE_')
+            old_root = root / 'baseline'
+            old_root.mkdir()
+            baseline = Qualification(old_root)
+            witness_root = root / 'witness'
+            witness_root.mkdir()
+            witness = Qualification(witness_root)
+            ready = (baseline.checkout(token, BASELINE_PIN, BASELINE_TREE, status_prefix='BASELINE_')
+                     and witness.checkout(token, WITNESS_PIN, WITNESS_TREE, status_prefix='WITNESS_'))
             token = ''
-            if group == 'core':
-                passed = core(q)
-            elif group == 'ocr':
-                passed = ocr_gate(q)
-            elif group == 'desktop-source':
-                passed = q.desktop(build=True)
-            elif group == 'bundle':
-                passed = bundle(q)
-            elif group in ('desktop','upgrade'):
-                # A diagnostic Windows build is expensive. First query the real
-                # original MCP binary and require all six production projections.
-                # Full release has its independent bundle group already.
-                preflight_ready = baseline_ready and browser_witness_preflight(q)
-                if preflight_ready and group == 'upgrade' and SCOPE == 'B066_UPGRADE_DIAGNOSTIC':
-                    preflight_ready = bundle(q)
-                if preflight_ready:
-                    passed = installed_gate(q, pin, tree, baseline, BASELINE_PIN, BASELINE_TREE, upgrade=(group=='upgrade'))
-                    if passed and group == 'desktop':
-                        from delivery import seal_clean_install
-                        passed = seal_clean_install(q, pin, tree)
+            if ready:
+                verify_witness_checkouts(q, witness)
+                status('WITNESS_ONLY_SOURCE_DIFF', 'PASS')
+                if browser_witness_preflight(witness) and all(witness.results.values()):
+                    # Product and baseline builds retain their original pins.
+                    # Only the independent qualification script uses witness.src.
+                    verify_witness_checkouts(q, witness)
+                    passed = installed_gate(q, pin, tree, baseline, BASELINE_PIN, BASELINE_TREE,
+                                            upgrade=True, witness=witness)
                 else:
-                    q.block('UPGRADE_BASELINE_OR_WITNESS_PREFLIGHT')
+                    q.block('UPGRADE_WITNESS_PREFLIGHT')
+            else:
+                q.block('UPGRADE_BASELINE_OR_WITNESS_CHECKOUT')
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
         status('B066_INTERNAL', 'FAIL')
     finally:
@@ -107,15 +101,11 @@ def main():
             clean = cleanup_private(root)
             status('PRIVATE_CLEANUP', 'PASS' if clean else 'FAIL')
             passed = passed and clean
-    if group == 'desktop':
-        status('INSTALLED_GUI', 'PASS' if passed else 'NOT_CONFIRMED')
-    elif group == 'upgrade':
-        status('INSTALLED_BROWSER', 'PASS' if passed else 'NOT_CONFIRMED')
-    else:
-        status('INSTALLED_GUI', 'NOT_RUN')
+    status('INSTALLED_BROWSER', 'PASS' if passed else 'NOT_CONFIRMED')
     status('PRODUCT_ACCEPTED', 'false')
     status('GROUP_QUALIFICATION', 'PASS' if passed else 'FAIL')
     return 0 if passed else 1
+
 
 if __name__ == '__main__':
     sys.exit(main())
