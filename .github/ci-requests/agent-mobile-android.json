@@ -1,0 +1,11 @@
+{
+  "candidate": "0ac929b244221f879f4fe32466f5443b75572aad",
+  "tree": "76292c0c5e14de46df5854c9b21d63e5945ca1ef",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M21_3_SOURCE_AND_T3_SEARCH",
+  "reason": "QUALIFY_M21_3_WITH_EXACT_24_DIAGNOSTIC_TESTS",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "25ac1380d4281092efc5767e147769df5cbf3334"
+}
