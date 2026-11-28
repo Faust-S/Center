@@ -1,0 +1,11 @@
+{
+  "candidate": "767d8332b1ca6e5dbf52ceb1ebab869a136f9fa5",
+  "tree": "a0b0dcf7069c78902a1ca3572df4b3279182f511",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M25_1_ORIGINAL_BACKGROUND_WAKE_CANDIDATE",
+  "reason": "QUALIFY_ORIGINAL_DUE_SELECTION_LEASE_RECOVERY_AND_NO_DUPLICATE_CLAIM",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "2fe7fdf476babc158a5fb7e51859a90d8aa437f1"
+}
