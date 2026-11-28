@@ -1,0 +1,11 @@
+{
+  "candidate": "bbd017268217dc290eb62fe01cca8c8a6c022a4b",
+  "tree": "8259699a15c4dbefad9b6bd9e02efb9417ebe922",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M23_8_SOURCE_FAILURE_DIAGNOSIS",
+  "reason": "DIAGNOSE_EXACT_NATIVE_TASK_SOURCE_FAILURE_WITHOUT_ANDROID_REBUILD",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "20d684904cf8f216f4b50f0507498324fd3d3dc3"
+}
