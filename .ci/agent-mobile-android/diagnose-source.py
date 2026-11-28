@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import shutil
 import xml.etree.ElementTree as ET
 
 def status(name,value):
@@ -66,7 +67,7 @@ def main():
         report=root/"mobile.xml"
         test=source/"mobile/qualification/python-core-product/test_original_task_integration.py"
         p=run([py,"-I","-m","pytest","-q","--noconftest","--import-mode=importlib",
-               "--rootdir="+str(root),"--junitxml="+str(report),str(test)],cwd=root,custom=isolated,timeout=180)
+               "--rootdir="+str(root),"--junitxml="+str(report),str(test),str(test.with_name("test_mobile_work_port.py"))],cwd=root,custom=isolated,timeout=240)
         if not report.is_file():
             status("MOBILE_TASK_ARCHIVE","REPORT_MISSING")
             return 1
@@ -84,6 +85,11 @@ def main():
             "test_action_candidates_are_not_authorized_by_inference",
             "test_direct_model_port_cannot_bypass_original_invocation_authority",
             "test_stale_scheduler_claim_cannot_invoke",
+            "test_schedule_is_exact_original_job","test_execute_selected_job_without_consuming_older_job",
+            "test_original_foreign_job_cannot_be_claimed","test_stale_job_revision_never_invokes",
+            "test_future_job_never_consumes_attempt","test_native_model_change_pauses_original_job",
+            "test_cold_result_and_human_review_are_original","test_review_cannot_substitute_another_jobs_task",
+            "test_input_rejects_model_text_injection_and_bad_schedule","test_recurring_job_preserves_first_result_and_next_occurrence",
         }
         for case in failed:
             if case.get("name") in allowed:status("MOBILE_TASK_FAIL_TEST",case.get("name"))
@@ -97,18 +103,31 @@ def main():
                          "MOBILE_TASK_SOURCE_ROUTE_UNAVAILABLE","MOBILE_TASK_RESULT_CHANGED",
                          "MOBILE_TASK_ROUTE_UNAVAILABLE","MOBILE_TASK_MODEL_REQUIRED","automation_claim_mismatch"):
                 if code in raw:status("MOBILE_TASK_FAIL_CLASS",code)
-        mobile_ok=p.returncode==0 and len(cases)==9 and not failed and not skipped
+        mobile_ok=p.returncode==0 and len(cases)==19 and not failed and not skipped
         status("MOBILE_TASK_ARCHIVE","PASS" if mobile_ok else "FAIL")
         package=run([py,"mobile/qualification/test_original_python_qa.py"],timeout=180)
         package_ok=package.returncode==0
         status("ARCHIVE_REGRESSION","PASS" if package_ok else "FAIL")
+        compiler=shutil.which("kotlinc")
+        kotlin_ok=False
+        if compiler and shutil.which("java"):
+            jar=root/"identity-tests.jar"
+            p=run([compiler,"mobile/native/android/ModelFileIntegrity.kt",
+                   "mobile/qualification/ModelFileIntegrityTest.kt","-include-runtime","-d",str(jar)],timeout=180)
+            status("MODEL_IDENTITY_COMPILE","PASS" if p.returncode==0 else "FAIL")
+            if p.returncode==0:
+                p=run(["java","-jar",str(jar)],timeout=120)
+                kotlin_ok=p.returncode==0 and re.findall(rb"(?m)^MODEL_FILE_INTEGRITY=(\d+)/27; SKIPPED=0\s*$",p.stdout)==[b"27"]
+                status("MODEL_IDENTITY_TESTS","27/27" if kotlin_ok else "FAIL")
+        else:
+            status("MODEL_IDENTITY_COMPILE","TOOL_UNAVAILABLE")
         suites=(
             ("M23_DISPATCH",["tests/test_automation_task_dispatch.py"]),
             ("ORIGINAL_SCHEDULER",["tests/test_durable_automation_retry_budget.py","tests/test_interactive_task_retry_claim.py"]),
             ("ORIGINAL_TASK_WORK_AREA",["tests/cells/test_task_goal_board_automation_session_skill.py",
                                         "-k","automation or scheduled_followup or task_lifecycle_uses_cell_writes"]),
         )
-        passed=mobile_ok and package_ok
+        passed=mobile_ok and package_ok and kotlin_ok
         for name,args in suites:
             report=root/(name+".xml")
             p=run([py,"-m","pytest","-q","--junitxml="+str(report),*args],timeout=300)
