@@ -1,0 +1,11 @@
+{
+  "candidate": "4fdeb3db2042b20fd3ef084861cb69f6868d6198",
+  "tree": "613d3f4aa9e7b4030f96e9ef80f024bf7ae8e441",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M20_13_ANDROID_VOICE_AND_CONVERSATION_HISTORY",
+  "reason": "ISOLATE_QA_CONVERSATIONS_AND_VERIFY_REAL_T3_HISTORY",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "9a918ac889e9fe5cb7f8b58170c45d49209800cf"
+}
