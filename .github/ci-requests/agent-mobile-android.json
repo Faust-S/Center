@@ -1,0 +1,11 @@
+{
+  "candidate": "c67d946c2269a3a38fc072bb74abc81e94063b65",
+  "tree": "8ab5dee370e69844c4dfe558722684155a636a62",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M23_8_TARGETED_INTERACTION_SOURCE_PIN",
+  "reason": "VERIFY_EXACT_UPDATED_SOURCE_IDENTITIES_AND_EXISTING_INTERACTION_BEHAVIOR",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "3aebf49227a310faaa3b408998cd4a1e247fc68c"
+}
