@@ -1,0 +1,70 @@
+name: Original Kernel protected revision scoped candidate
+on:
+  push:
+    branches: ['ci/once/kernel-protected-history-candidate/**']
+    paths: ['.github/ci-requests/kernel-protected-history-candidate.json']
+permissions:
+  contents: read
+concurrency:
+  group: original-kernel-protected-revision-candidate
+  cancel-in-progress: false
+jobs:
+  exact-kernel-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: node qualification/validate-kernel-protected-history-request.mjs
+      - name: Require authorized private read-only checkout
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: test -n "$PRIVATE_SOURCE_TOKEN" || { echo KERNEL_SOURCE_ACCESS_REQUIRED; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 4d5291abeb2d91c0f7cb50dfef565f1ae22bf9ec
+          path: exact-t2
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Reconstruct original exact K036 DB8 source and candidate
+        run: |
+          test "$(git -C exact-t2 rev-parse HEAD)" = "4d5291abeb2d91c0f7cb50dfef565f1ae22bf9ec"
+          ROOT="$GITHUB_WORKSPACE/exact-t2"
+          BASE="$ROOT/t2/current/final-successor"
+          LOG="$RUNNER_TEMP/protected-history-materialize-private.log"
+          node "$BASE/canonical-source/scripts/materialize-k035-atomic-graph-successor.mjs" "$BASE/canonical-source-inputs/k035-rc20/SOURCE_AUTHORITY.json" "$ROOT" "$RUNNER_TEMP/k035-base" > "$LOG" 2>&1 || { echo K035_MATERIALIZE_FAIL; exit 1; }
+          node "$BASE/canonical-source/scripts/materialize-k036-atomic-graph-qualified.mjs" "$RUNNER_TEMP/k035-base" "$RUNNER_TEMP/k036-atomic" >> "$LOG" 2>&1 || { echo K036_EXACT_SOURCE_FAIL; exit 1; }
+          node "$BASE/canonical-source/scripts/create-k036-import-time-candidate.mjs" "$RUNNER_TEMP/k036-atomic" "$RUNNER_TEMP/k036-timestamp" >> "$LOG" 2>&1 || { echo K036_TIMESTAMP_SOURCE_FAIL; exit 1; }
+          node "$BASE/canonical-source/scripts/create-k036-same-store-history-candidate.mjs" "$RUNNER_TEMP/k036-timestamp" "$RUNNER_TEMP/k036-db8" >> "$LOG" 2>&1 || { echo K036_DB8_SOURCE_FAIL; exit 1; }
+          node "$BASE/kernel-successors/k036-protected-object-history-candidate/create-candidate.mjs" "$RUNNER_TEMP/k036-db8" "$RUNNER_TEMP/k036-protected" >> "$LOG" 2>&1 || { grep -oE 'PROTECTED_HISTORY_CANDIDATE_[A-Z_a-z0-9-]+' "$LOG" | tail -n 2 || true; echo PROTECTED_CANDIDATE_SOURCE_FAIL; exit 1; }
+          echo EXACT_K036_DB8_PROTECTED_CANDIDATE_MATERIALIZED
+      - name: Original locked Kernel dependencies
+        run: |
+          cd "$RUNNER_TEMP/k036-protected"
+          npm ci --ignore-scripts --no-audit --no-fund > "$RUNNER_TEMP/protected-history-deps-private.log" 2>&1 || { echo KERNEL_DEPENDENCIES_FAIL; exit 1; }
+      - name: Targeted original transaction, protected read and same-store regressions
+        run: |
+          cd "$RUNNER_TEMP/k036-protected"
+          rc=0
+          node node_modules/vitest/vitest.mjs run --config vitest.config.ts --fileParallelism=false tests/protected-revision.test.ts tests/atomic-object-graph.test.ts tests/same-store-event-history.test.ts --reporter=json --outputFile="$RUNNER_TEMP/protected-history-results.json" > "$RUNNER_TEMP/protected-history-tests-private.log" 2>&1 || rc=$?
+          node -e 'const fs=require("fs"),p=process.argv[1]; if(!fs.existsSync(p)){console.log("KERNEL_TEST_REPORT_MISSING");process.exit(1)};const r=JSON.parse(fs.readFileSync(p,"utf8"));console.log(JSON.stringify({tests:r.numTotalTests,pass:r.numPassedTests,fail:r.numFailedTests,skip:r.numPendingTests,files:r.numTotalTestSuites}));if(r.numFailedTests||r.numPendingTests||!r.numPassedTests)process.exit(1)' "$RUNNER_TEMP/protected-history-results.json" || exit 1
+          test "$rc" = 0
+      - name: Original Kernel TypeScript
+        run: |
+          cd "$RUNNER_TEMP/k036-protected"
+          rc=0
+          npm run typecheck > "$RUNNER_TEMP/protected-history-types-private.log" 2>&1 || rc=$?
+          grep -oE 'error TS[0-9]+' "$RUNNER_TEMP/protected-history-types-private.log" | sort | uniq -c || true
+          test "$rc" = 0
+          echo KERNEL_TYPES_PASS
+      - name: Remove private sources and diagnostics
+        if: always()
+        run: |
+          rm -rf exact-t2 "$RUNNER_TEMP/k035-base" "$RUNNER_TEMP/k036-atomic" "$RUNNER_TEMP/k036-timestamp" "$RUNNER_TEMP/k036-db8" "$RUNNER_TEMP/k036-protected"
+          rm -f "$RUNNER_TEMP"/protected-history-*-private.log "$RUNNER_TEMP"/protected-history-results.json

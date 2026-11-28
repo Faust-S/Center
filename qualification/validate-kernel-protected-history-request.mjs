@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+const workflow='kernel-protected-history-candidate',path='.github/ci-requests/'+workflow+'.json';
+const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
+const event=JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),before=event.before,head=process.env.GITHUB_SHA;
+assert.equal(process.env.GITHUB_EVENT_NAME,'push');
+assert.equal(event.created,false);assert.equal(event.deleted,false);assert.equal(event.forced,false);
+assert.match(before,/^[a-f0-9]{40}$/);assert.match(head,/^[a-f0-9]{40}$/);
+assert.equal(event.after,head);assert.equal(process.env.GITHUB_REF,'refs/heads/ci/once/'+workflow+'/'+before);
+assert.equal(event.ref,process.env.GITHUB_REF);assert.equal(git('rev-parse','HEAD'),head);
+assert.equal(git('rev-list','--parents','-n','1',head),head+' '+before);
+assert.equal(git('diff','--name-status',before,head),'A\t'+path);
+const req=JSON.parse(readFileSync(path,'utf8'));
+assert.deepEqual(req,{workflow,prepared:before,profile:'w04-protected-history-scoped-candidate',pins:{t2Candidate:'4d5291abeb2d91c0f7cb50dfef565f1ae22bf9ec'},reason:'Qualify proposed original DB8 protected revision scoped primitive and original graph regression without Runtime publication'});
+console.log('EXACT_PROTECTED_HISTORY_REQUEST_PASS');
