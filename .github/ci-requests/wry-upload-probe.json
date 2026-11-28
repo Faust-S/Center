@@ -1,0 +1,14 @@
+{
+  "workflow": "wry-upload-probe",
+  "prepared_sha": "92090c9c0ee1ed3086348c0e543c0e039d16c337",
+  "profile": {
+    "wry": "0.57.1",
+    "tao": "0.37.2",
+    "webview2-com": "0.39.1",
+    "modes": [
+      "focus-open",
+      "focus-enter"
+    ]
+  },
+  "purpose": "native-file-picker-isolation"
+}
