@@ -74,11 +74,20 @@ def upgrade_diagnostics(data, *, label_prefix=''):
     for name,value in {**preview_dom_diagnostics(data), **navigation_http_diagnostics(data), **guest_observations(data), **browser_flow_diagnostics(data,codes), **native_bridge_diagnostics(data)}.items():
         print(label_prefix+name+'='+value,flush=True)
 
+    proposal_codes = frozenset(('TASK_IDENTITY','REVIEW_STATE','LOCAL_MODE','EXTERNAL_ACTION','PROVIDER','MODEL',
+        'PIN','OBJECTIVE','SUMMARY','COUNT','CANDIDATE_IDENTITY','OPERATION','POLICY','TARGET','ARGUMENTS',
+        'ARGUMENT_TAB_REF','ARGUMENT_UID','ARGUMENT_VALUE','SCHEMA','ATTACHMENT','CATALOG','TASK_COUNT',
+        'TASK_TITLE','TASK_STOPPED','TIMEOUT','UNEXPECTED'))
+    prefix = 'AGENT066_ACTION_PROPOSAL_DETAIL='
+    details = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
+    if len(details) == 1 and details[0] in proposal_codes:
+        print(label_prefix+'ACTION_PROPOSAL_DETAIL='+details[0], flush=True)
+
 
 def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False, witness=None):
     if (os.name!='nt' or upgrade != (baseline is not None)
             or os.environ.get('QUALIFICATION_GROUP')!=('upgrade' if upgrade else 'desktop')
-            or (SCOPE == 'B066_WITNESS_ONLY_UPGRADE') != (witness is not None)
+            or (SCOPE == 'B066_REMAINING_NATIVE_DEVELOPMENT') != (witness is not None)
             or (witness is not None and (not upgrade or witness is q or witness is baseline
                                          or not witness.results or not all(witness.results.values())))):
         q.block('SETUP_ADMISSION'); return False
@@ -110,6 +119,24 @@ def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False, 
     good=False
     if upgrade:
         ready=verdict(q,label,code==0 and preflight and built and data.strip()=='AGENT065_UPGRADE_CANDIDATE_BUILT_UNQUALIFIED')
+        if SCOPE == 'B066_REMAINING_NATIVE_DEVELOPMENT':
+            if not ready:
+                return False
+            root = q.root/'browser-development'
+            candidate_hash = file_sha256(out/NAME)
+            code,data=q.run('B066_REMAINING_NATIVE',[sys.executable,witness.src/'tools/qualify_setup_core_browser_development.py',
+                '--new-setup',out/NAME,'--new-receipt',out/RECEIPT,
+                '--qualification-root',root,'--new-source',pin,'--new-tree',tree,'--remaining'],
+                env=env,report=False,timeout=6000)
+            upgrade_diagnostics(data,label_prefix='DEVELOPMENT_')
+            rows = data.splitlines()
+            expected = ('AGENT066_BROWSER_FLOW_MANUAL=NOT_RUN','AGENT066_BROWSER_FLOW_SNAPSHOT=NOT_RUN',
+                        'AGENT066_BROWSER_FLOW_FILES=PASS','AGENT066_BROWSER_FLOW_ACTIONS=PASS')
+            good = verdict(q,'B066_REMAINING_NATIVE',code==0 and rows[-1:]==['AGENT066_BROWSER_DEVELOPMENT_PASS']
+                           and all(rows.count(x)==1 for x in expected) and file_sha256(out/NAME)==candidate_hash)
+            verdict(q,'BASELINE_LOCK_AFTER',lock_ok(baseline.src/LOCK,OLD_LOCK,'0.6.5'))
+            verdict(q,'COMMITTED_NATIVE_LOCK_AFTER',lock_ok(q.src/LOCK,NEW_LOCK,'0.6.6'))
+            return good and all(q.results.values()) and all(baseline.results.values()) and all(witness.results.values())
         # Debug the four independent installed browser routes on the one
         # exact candidate before spending time rebuilding frozen 0.6.5.
         # This is development evidence only; it never replaces upgrade PASS.

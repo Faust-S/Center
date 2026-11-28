@@ -1,4 +1,4 @@
-name: Agent 0.6.6 remaining native upgrade and preserved owner delivery
+name: Agent 0.6.6 remaining native browser development only
 on:
   push:
     branches:
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   qualify:
-    name: qualify / upgrade
+    name: development / files and AI actions
     if: ${{ github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false }}
     runs-on: windows-2022
     timeout-minutes: 360
@@ -22,8 +22,8 @@ jobs:
       PRIVATE_TREE: '50bfd8fe63f2f397fd1d8d587cb34c1fc07fe035'
       BASELINE_PIN: '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
       BASELINE_TREE: '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
-      WITNESS_PIN: 'f4a2a85f59702151172404df5525d5b9bafe9eaf'
-      WITNESS_TREE: 'b60b76b3508c51bad0965876f9ab725fb259b11a'
+      WITNESS_PIN: '6c22834aaa85fd3e4528aa4877fd4a91dcdca27b'
+      WITNESS_TREE: '129acce920b5988478c5eb8cc7c266440016d419'
       QUALIFICATION_GROUP: upgrade
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -54,43 +54,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Qualify original release source with separately pinned witness
+      - name: Build candidate once and test remaining installed browser routes
         shell: bash
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: python .ci/agent066-browser-source/run.py
-  delivery:
-    name: delivery / qualified owner package
-    needs: qualify
-    if: ${{ needs.qualify.result == 'success' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Recheck exact prior results and artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python .ci/agent066-browser-source/reuse_evidence.py prior
-      - name: Prepare existing envelope verification
-        run: python -m pip install --disable-pip-version-check --no-cache-dir cryptography==46.0.4
-      - uses: actions/download-artifact@v4
-        with:
-          artifact-ids: '15259880049'
-          run-id: '46132480100'
-          repository: Faust-S/Center
-          github-token: ${{ github.token }}
-          merge-multiple: true
-          path: owner-delivery
-      - name: Verify exact original clean-installed package after all groups
-        run: python .ci/agent066-browser-source/reuse_evidence.py delivery owner-delivery
-      - name: Publish qualified encrypted owner package
-        uses: actions/upload-artifact@v4
-        with:
-          name: IWXA-Agent-0.6.6-qualified-fdc0a706-encrypted
-          path: owner-delivery/
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0

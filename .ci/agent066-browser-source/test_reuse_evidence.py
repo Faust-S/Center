@@ -46,17 +46,17 @@ class Evidence(unittest.TestCase):
                 with self.assertRaises(ValueError):e.verify_prior(*args)
 
     def test_exact_witness_tree(self):
-        before = {('private/file-'+str(i)).encode():b'100644 blob '+b'a'*40 for i in range(3353)}
+        before = {('private/file-'+str(i)).encode():b'100644 blob '+b'a'*40 for i in range(3356-len(e.WITNESS_CHANGES))}
         after = before.copy()
         for name,(old,new) in e.WITNESS_CHANGES.items():
             before[name]=('100644 blob '+old).encode();after[name]=('100644 blob '+new).encode()
-        e.verify_witness_trees(before,after,[admit.CANDIDATE_PIN])
-        for b,a,parents in ((before,{**after,b'private/file-1':b'100644 blob '+b'b'*40},[admit.CANDIDATE_PIN]),
-                            (before,{**after,b'extra':b'100644 blob '+b'a'*40},[admit.CANDIDATE_PIN]),
-                            (before,before,[admit.CANDIDATE_PIN]),(before,after,['0'*40])):
+        e.verify_witness_trees(before,after,[e.WITNESS_PARENT])
+        for b,a,parents in ((before,{**after,b'private/file-1':b'100644 blob '+b'b'*40},[e.WITNESS_PARENT]),
+                            (before,{**after,b'extra':b'100644 blob '+b'a'*40},[e.WITNESS_PARENT]),
+                            (before,before,[e.WITNESS_PARENT]),(before,after,['0'*40])):
             with self.assertRaises(ValueError):e.verify_witness_trees(b,a,parents)
         path=next(iter(e.WITNESS_CHANGES))
-        with self.assertRaises(ValueError):e.verify_witness_trees(before,{**after,path:after[path].replace(b'100644',b'100755')},[admit.CANDIDATE_PIN])
+        with self.assertRaises(ValueError):e.verify_witness_trees(before,{**after,path:after[path].replace(b'100644',b'100755')},[e.WITNESS_PARENT])
         self.assertEqual(e.tree_entries(b'100644 blob '+b'a'*40+b'\tpath\0'),{b'path':b'100644 blob '+b'a'*40})
         with self.assertRaises(ValueError):e.tree_entries(b'100644 blob '+b'a'*40+b'\tpath\0'+b'100644 blob '+b'a'*40+b'\tpath\0')
 

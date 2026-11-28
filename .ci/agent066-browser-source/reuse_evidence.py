@@ -26,12 +26,17 @@ JOBS = {
     'qualify / upgrade': (140940468560, 'failure'),
     'delivery / qualified owner package': (140947366587, 'skipped'),
 }
+WITNESS_PARENT = 'f4a2a85f59702151172404df5525d5b9bafe9eaf'
 WITNESS_CHANGES = {
-    b'tests/test_setup_core_browser_installed.py': ('655bc770eb7844f330133b3c9f88d6672754435c','ea372af02eea4e5edf088878ef56d664acfe8b64'),
-    b'tools/qualify_setup_core_browser_gui.ps1': ('b07a7031f84c93228761a4af7ae00efd04f1bf2b','b888e6c66fc5246b0a318e352d4d9961b3917437'),
-    b'tools/qualify_setup_core_browser_installed.py': ('2a9e2946d6875c0985b4e9285c27b0f009e16a44','b5400ea9f656526530cae0d70c2aa89634868f45'),
+    b'tests/test_setup_core_browser_actions.py': ('3fec1d7a445dd33639423b8928c78775b51619f5','f36c7e8645bfaab4dc96ffbdf191efb1d9641aa8'),
+    b'tests/test_setup_core_browser_development.py': ('4ce0d3a2bc0904f7cece260af21c9638e35980bd','59dfd75fd9d21d37adcfc370389a890b75d38bfa'),
+    b'tests/test_setup_core_browser_installed.py': ('655bc770eb7844f330133b3c9f88d6672754435c','5947134612b9f8a05927a0c8bec484873ccfaf2a'),
+    b'tools/qualify_setup_core_browser_actions.py': ('04f9cc7a88a72b4da86b01a10fb3ec8724f62bdf','30f494658b37505187967f1a94582c17679333cc'),
+    b'tools/qualify_setup_core_browser_actions_flow.py': ('d1fdedb39aa3c19c2e947f8a9858c2183459a03e','8e2777797875370b38a455f717f0c7ecdcc69c36'),
+    b'tools/qualify_setup_core_browser_development.py': ('7fe2e4d63fed7059ba76c28674fb1321aa29f352','ec419c7269be24a1f2d6d540a9b82a9f0d9e0dbe'),
+    b'tools/qualify_setup_core_browser_gui.ps1': ('b07a7031f84c93228761a4af7ae00efd04f1bf2b','f86a47493a59fc7230353464002b66baae812230'),
+    b'tools/qualify_setup_core_browser_installed.py': ('2a9e2946d6875c0985b4e9285c27b0f009e16a44','dec7b867ab6e0c6d0542772b18e88ffece394714'),
 }
-
 
 def require(ok):
     if not ok:
@@ -99,7 +104,7 @@ def tree_entries(raw):
 
 
 def verify_witness_trees(before, after, parents):
-    require(parents == [CANDIDATE_PIN])
+    require(parents == [WITNESS_PARENT])
     require(len(before) == len(after) == 3356 and set(before) == set(after))
     changed = {p for p in before if before[p] != after[p]}
     require(changed == set(WITNESS_CHANGES))

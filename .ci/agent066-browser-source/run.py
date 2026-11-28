@@ -42,17 +42,13 @@ def browser_witness_preflight(q):
     if q.run('B066_PREVIEW_WITNESS_SYNTAX', ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
         "$tokens=$null;$errors=$null;$null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) 'tools/qualify_setup_core_browser_gui.ps1'),[ref]$tokens,[ref]$errors);if($errors.Count -ne 0){exit 1}"], timeout=60)[0]:
         return False
-    if q.run('B066_PREVIEW_LAYOUT_NODE', ['node','--test','tests/qualification/test_preview_layout_diagnostic.mjs','tests/qualification/test_guest_observation.mjs','desktop/tests/browser-pane-model.test.mjs','desktop/tests/browser-popup-bootstrap.test.mjs','desktop/tests/browser-policy.test.mjs'], timeout=60)[0]:
-        return False
     python = q.venv('browserwitnessqa', ['requirements-ci.txt'])
     if python is None:
         q.block('B066_BROWSER_WITNESS_TEST')
         return False
     return q.pytest('B066_BROWSER_WITNESS_TEST', python,
-                    ['tests/test_setup_core_browser_installed.py','tests/test_setup_core_preview_layout.py','tests/test_setup_core_upgrade_065_to_066.py',
-                     'tests/test_setup_core_browser_actions.py','tests/test_setup_core_browser_files.py','tests/test_setup_core_browser_snapshot_flow.py','tests/test_setup_core_browser_snapshot.py','tests/test_setup_core_browser_development.py','tests/test_browser_native_observation.py',
-                     'tests/test_browser_mcp_bundle_probe.py','tests/test_browser_mcp_schema_projection.py',
-                     'tests/test_shared_browser_mcp.py','tests/test_browser_native_bridge.py','tests/test_agent066_browser_core_integration.py'], timeout=600)
+                    ['tests/test_setup_core_browser_installed.py','tests/test_setup_core_browser_actions.py',
+                     'tests/test_setup_core_browser_development.py'], timeout=600)
 
 
 def main():
@@ -101,9 +97,10 @@ def main():
             clean = cleanup_private(root)
             status('PRIVATE_CLEANUP', 'PASS' if clean else 'FAIL')
             passed = passed and clean
-    status('INSTALLED_BROWSER', 'PASS' if passed else 'NOT_CONFIRMED')
+    status('REMAINING_NATIVE_DEVELOPMENT', 'PASS' if passed else 'FAIL')
+    status('INSTALLED_BROWSER', 'NOT_RUN')
     status('PRODUCT_ACCEPTED', 'false')
-    status('GROUP_QUALIFICATION', 'PASS' if passed else 'FAIL')
+    status('GROUP_QUALIFICATION', 'NOT_RUN')
     return 0 if passed else 1
 
 
