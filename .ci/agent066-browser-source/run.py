@@ -50,6 +50,7 @@ def browser_witness_preflight(q):
                     ['tests/test_setup_core_browser_installed.py','tests/test_setup_core_browser_actions.py',
                      'tests/test_setup_core_browser_files.py','tests/test_setup_core_browser_development.py',
                      'tests/test_browser_model_proposals.py','tests/test_browser_snapshot_targets.py',
+                     'tests/test_browser_exact_user_values.py',
                      'tests/test_browser_document_actions.py','tests/test_agent066_browser_core_integration.py',
                      'tests/test_shared_browser_mcp.py','tests/test_browser_mcp_host.py'], timeout=600):
         return False
