@@ -1,0 +1,11 @@
+{
+  "candidate": "bbd017268217dc290eb62fe01cca8c8a6c022a4b",
+  "tree": "8259699a15c4dbefad9b6bd9e02efb9417ebe922",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M23_7_NATIVE_WORK_PORT_TARGETED_HOST",
+  "reason": "QUALIFY_EXACT_JOB_ADMISSION_AND_MODEL_IDENTITY_BEFORE_NATIVE_ANDROID_BUILD",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "b48fbd3357a61ebf4a5de43d46277e4fb9b5828f"
+}
