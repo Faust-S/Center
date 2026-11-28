@@ -1,4 +1,4 @@
-name: IWXA packaged original mobile Task qualification
+name: IWXA Android notification open race regression
 on:
   push:
     branches: ['ci/once/agent-mobile-android/*']
@@ -7,16 +7,16 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: iwxa-mobile-task-dispatch-host
+  group: iwxa-mobile-source-diagnosis
   cancel-in-progress: false
 jobs:
   qualify:
     if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     env:
-      PRIVATE_PIN: '3eeccc229af27bb3db331d31ffe17cd47b849a33'
-      PRIVATE_TREE: '6fe7ac2696480bff7d1bd0b2d11e91a37f72f0f8'
+      PRIVATE_PIN: 'a4999e005e111781b013ae98d99dab48b5390a03'
+      PRIVATE_TREE: 'a324c6283f0471a8ef1dca7a5cdc67955133d5d1'
       T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
       T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:
@@ -27,10 +27,13 @@ jobs:
           persist-credentials: false
       - name: Admit exact one-shot private source candidate
         run: python3 .ci/agent-mobile-android/admit-once.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Qualify original Task dispatch on host
+      - name: Diagnose source regression only
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: python3 .ci/agent-mobile-android/diagnose-source.py
